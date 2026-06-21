@@ -1,1 +1,639 @@
-"""\nCLAUDE + QUANT Trading Bot\nStrategy : EMA 20/50 Crossover + RSI Filter\nSymbol   : EURUSD (configurable)\nTimeframe: M15\nRisk     : 1% per trade, 1:2 RR\n"""\n\nimport time\nimport json\nimport threading\nfrom datetime import datetime, timezone\nfrom http.server import HTTPServer, BaseHTTPRequestHandler\n\ntry:\n    import MetaTrader5 as mt5\n    MT5_AVAILABLE = True\nexcept ImportError:\n    MT5_AVAILABLE = False\n    print("[WARN] MetaTrader5 package not found. Run: pip install MetaTrader5")\n\n# ── CONFIG ──────────────────────────────────────────────────────────────────\nSYMBOL        = "EURUSD"\nTIMEFRAME     = 16385          # mt5.TIMEFRAME_M15\nLOT           = 0.01\nRISK_PCT      = 1.0            # % of balance per trade\nSL_PIPS       = 20\nTP_PIPS       = 40             # 1:2 RR\nEMA_FAST      = 20\nEMA_SLOW      = 50\nRSI_PERIOD    = 14\nRSI_OB        = 70\nRSI_OS        = 30\nMAGIC         = 234567\nCHECK_EVERY   = 15\nSERVER_PORT   = 5000\n\n_lock = threading.Lock()\n_state = {\n    "status": "starting", "connected": False, "symbol": SYMBOL,\n    "account": {"balance": 0, "equity": 0, "profit": 0, "currency": "USD", "leverage": 100, "server": "", "name": ""},\n    "positions": [], "last_signal": None,\n    "stats": {"trades_total": 0, "trades_win": 0, "win_rate": 0.0, "total_profit": 0.0, "biggest_win": 0.0, "biggest_loss": 0.0},\n    "price": {"bid": 0, "ask": 0, "spread": 0},\n    "last_update": "",\n}\n\ndef state_get():\n    with _lock:\n        return json.loads(json.dumps(_state))\n\ndef state_set(key, value):\n    with _lock:\n        _state[key] = value\n        _state["last_update"] = datetime.now(timezone.utc).isoformat()\n\ndef ema_series(prices, period):\n    k = 2 / (period + 1)\n    result = [prices[0]]\n    for p in prices[1:]:\n        result.append(p * k + result[-1] * (1 - k))\n    return result\n\ndef rsi(closes, period=14):\n    if len(closes) < period + 1:\n        return 50.0\n    gains, losses = [], []\n    for i in range(1, len(closes)):\n        d = closes[i] - closes[i - 1]\n        gains.append(max(d, 0))\n        losses.append(max(-d, 0))\n    ag = sum(gains[:period]) / period\n    al = sum(losses[:period]) / period\n    for i in range(period, len(gains)):\n        ag = (ag * (period - 1) + gains[i]) / period\n        al = (al * (period - 1) + losses[i]) / period\n    if al == 0:\n        return 100.0\n    return 100 - (100 / (1 + ag / al))\n\ndef pip_value(symbol):\n    return 0.0001 if "JPY" not in symbol else 0.01\n\ndef calc_lot(balance, sl_pips, symbol):\n    risk_amount = balance * (RISK_PCT / 100)\n    lot = risk_amount / (sl_pips * pip_value(symbol) * 100000)\n    return round(max(lot, 0.01), 2)\n\ndef get_bars(symbol, timeframe, n=120):\n    if not MT5_AVAILABLE:\n        return None\n    rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, n)\n    return rates if rates is not None and len(rates) > 0 else None\n\ndef get_signal(rates):\n    closes = [r["close"] for r in rates]\n    if len(closes) < EMA_SLOW + 5:\n        return None, 50.0, 0, 0\n    ema_f = ema_series(closes, EMA_FAST)\n    ema_s = ema_series(closes, EMA_SLOW)\n    rsi_v = rsi(closes[-RSI_PERIOD - 5:], RSI_PERIOD)\n    cross_up   = ema_f[-2] <= ema_s[-2] and ema_f[-1] > ema_s[-1]\n    cross_down = ema_f[-2] >= ema_s[-2] and ema_f[-1] < ema_s[-1]\n    signal = None\n    if cross_up   and rsi_v < RSI_OB: signal = "BUY"\n    elif cross_down and rsi_v > RSI_OS: signal = "SELL"\n    return signal, round(rsi_v, 1), round(ema_f[-1], 5), round(ema_s[-1], 5)\n\ndef open_position(symbol, signal, balance):\n    if not MT5_AVAILABLE:\n        return False\n    pip = pip_value(symbol)\n    lot = calc_lot(balance, SL_PIPS, symbol)\n    tick = mt5.symbol_info_tick(symbol)\n    if tick is None:\n        return False\n    if signal == "BUY":\n        price, sl, tp = tick.ask, round(tick.ask - SL_PIPS*pip, 5), round(tick.ask + TP_PIPS*pip, 5)\n        order_type = mt5.ORDER_TYPE_BUY\n    else:\n        price, sl, tp = tick.bid, round(tick.bid + SL_PIPS*pip, 5), round(tick.bid - TP_PIPS*pip, 5)\n        order_type = mt5.ORDER_TYPE_SELL\n    request = {"action": mt5.TRADE_ACTION_DEAL, "symbol": symbol, "volume": lot, "type": order_type,\n               "price": price, "sl": sl, "tp": tp, "magic": MAGIC, "comment": "CLAUDE+QUANT",\n               "type_time": mt5.ORDER_TIME_GTC, "type_filling": mt5.ORDER_FILLING_IOC}\n    result = mt5.order_send(request)\n    if result and result.retcode == mt5.TRADE_RETCODE_DONE:\n        print(f"[BOT] {signal} opened: {lot} lots @ {price}  SL={sl}  TP={tp}")\n        return True\n    print(f"[BOT] Order failed: {result.retcode if result else 'N/A'}")\n    return False\n\ndef has_open_position(symbol):\n    if not MT5_AVAILABLE:\n        return False\n    pos = mt5.positions_get(symbol=symbol)\n    return pos is not None and len(pos) > 0\n\ndef update_account():\n    if not MT5_AVAILABLE:\n        return\n    info = mt5.account_info()\n    if info is None:\n        return\n    state_set("account", {"balance": round(info.balance,2), "equity": round(info.equity,2),\n        "profit": round(info.profit,2), "currency": info.currency,\n        "leverage": info.leverage, "server": info.server, "name": info.name})\n    positions = mt5.positions_get()\n    pos_list = []\n    if positions:\n        for p in positions:\n            pos_list.append({"ticket": p.ticket, "symbol": p.symbol,\n                "type": "BUY" if p.type == 0 else "SELL",\n                "volume": p.volume, "open": p.price_open,\n                "sl": p.sl, "tp": p.tp, "profit": round(p.profit,2)})\n    state_set("positions", pos_list)\n    deals = mt5.history_deals_get(datetime(2000,1,1,tzinfo=timezone.utc), datetime.now(timezone.utc))\n    if deals:\n        our = [d for d in deals if d.magic == MAGIC and d.profit != 0]\n        profits = [d.profit for d in our]\n        wins = [p for p in profits if p > 0]\n        state_set("stats", {"trades_total": len(profits), "trades_win": len(wins),\n            "win_rate": round(len(wins)/len(profits)*100,1) if profits else 0.0,\n            "total_profit": round(sum(profits),2),\n            "biggest_win": round(max(profits),2) if profits else 0.0,\n            "biggest_loss": round(min(profits),2) if profits else 0.0})\n    tick = mt5.symbol_info_tick(SYMBOL)\n    if tick:\n        pip = pip_value(SYMBOL)\n        state_set("price", {"bid": round(tick.bid,5), "ask": round(tick.ask,5),\n            "spread": round((tick.ask-tick.bid)/pip,1)})\n\nclass APIHandler(BaseHTTPRequestHandler):\n    def log_message(self, fmt, *args): pass\n    def do_GET(self):\n        if self.path in ("/data", "/data/"):\n            data = json.dumps(state_get(), indent=2).encode()\n            self.send_response(200)\n            self.send_header("Content-Type", "application/json")\n            self.send_header("Access-Control-Allow-Origin", "*")\n            self.send_header("Content-Length", len(data))\n            self.end_headers()\n            self.wfile.write(data)\n        else:\n            self.send_response(404); self.end_headers()\n    def do_OPTIONS(self):\n        self.send_response(200)\n        self.send_header("Access-Control-Allow-Origin", "*")\n        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")\n        self.end_headers()\n\ndef run_server():\n    server = HTTPServer(("127.0.0.1", SERVER_PORT), APIHandler)\n    print(f"[API] http://127.0.0.1:{SERVER_PORT}/data")\n    server.serve_forever()\n\ndef bot_loop():\n    if not MT5_AVAILABLE:\n        state_set("status", "error: pip install MetaTrader5")\n        return\n    if not mt5.initialize():\n        state_set("status", "error: MT5 terminal not running")\n        print("[BOT] Open MetaTrader 5 first!")\n        return\n    state_set("connected", True)\n    state_set("status", "running")\n    print(f"[BOT] Connected | {SYMBOL} M15 | EMA{EMA_FAST}/{EMA_SLOW} + RSI | Risk {RISK_PCT}%")\n    while True:\n        try:\n            update_account()\n            rates = get_bars(SYMBOL, TIMEFRAME, 120)\n            if rates is not None:\n                signal, rsi_v, ema_f, ema_s = get_signal(rates)\n                with _lock:\n                    _state["last_signal"] = {"signal": signal, "rsi": rsi_v,\n                        "ema_fast": ema_f, "ema_slow": ema_s,\n                        "time": datetime.now(timezone.utc).isoformat()}\n                if signal and not has_open_position(SYMBOL):\n                    balance = _state["account"].get("balance", 1000)\n                    print(f"[BOT] {signal}  RSI={rsi_v}  EMA{EMA_FAST}={ema_f}  EMA{EMA_SLOW}={ema_s}")\n                    open_position(SYMBOL, signal, balance)\n        except Exception as e:\n            print(f"[BOT] Error: {e}")\n        time.sleep(CHECK_EVERY)\n\nif __name__ == "__main__":\n    print("=" * 55)\n    print("  CLAUDE + QUANT  |  Trading Bot v1.0")\n    print(f"  Symbol: {SYMBOL}  |  TF: M15  |  Risk: {RISK_PCT}%")\n    print(f"  Strategy: EMA{EMA_FAST}/{EMA_SLOW} crossover + RSI{RSI_PERIOD}")\n    print(f"  Dashboard: http://127.0.0.1:{SERVER_PORT}/data")\n    print("=" * 55)\n    threading.Thread(target=run_server, daemon=True).start()\n    bot_loop()\n
+"""
+CLAUDE + QUANT Trading Bot  v2.0
+
+STRATEGY STACK (Elite-Level):
+  Trend     : EMA 20 / 50 / 200  +  ADX > 25 (nur starke Trends)
+  Momentum  : RSI 14  +  MACD (12/26/9)
+  Volatility: ATR-14 basierter Stop-Loss (dynamisch, kein fixer Pip-Wert)
+  Confirm   : Candlestick Pattern Recognition (18 Patterns)
+  Structure : Market Structure (HH/HL fuer Long, LH/LL fuer Short)
+  Risk      : 1% per Trade, ATR x 1.5 SL, ATR x 3.0 TP (1:2 RR)
+
+CANDLESTICK PATTERNS erkannt:
+  Bullish: Hammer, Inverted Hammer, Bullish Engulfing, Morning Star,
+           Dragonfly Doji, Three White Soldiers, Piercing Line, Tweezer Bottom
+  Bearish: Shooting Star, Hanging Man, Bearish Engulfing, Evening Star,
+           Gravestone Doji, Three Black Crows, Dark Cloud Cover, Tweezer Top
+  Neutral: Doji, Spinning Top
+
+EINSTIEGS-LOGIK (ALLE Bedingungen muessen erfuellt sein):
+  BUY  -> EMA20 > EMA50 > EMA200  AND  ADX > 25  AND  RSI 40-65
+          AND  MACD bullish  AND  Market Structure bullish
+          AND  Bullish Candle Pattern
+  SELL -> EMA20 < EMA50 < EMA200  AND  ADX > 25  AND  RSI 35-60
+          AND  MACD bearish  AND  Market Structure bearish
+          AND  Bearish Candle Pattern
+"""
+
+import time
+import json
+import threading
+from datetime import datetime, timezone
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+try:
+    import MetaTrader5 as mt5
+    MT5_AVAILABLE = True
+except ImportError:
+    MT5_AVAILABLE = False
+    print("[WARN] MetaTrader5 nicht gefunden. Ausfuehren: pip install MetaTrader5")
+
+# -- CONFIG -------------------------------------------------------------------
+SYMBOL        = "EURUSD"
+TIMEFRAME     = 16385      # mt5.TIMEFRAME_M15
+RISK_PCT      = 1.0        # % des Kontos pro Trade
+ATR_SL_MULT   = 1.5        # Stop-Loss = ATR x 1.5
+ATR_TP_MULT   = 3.0        # Take-Profit = ATR x 3.0  (1:2 RR)
+EMA_FAST      = 20
+EMA_MID       = 50
+EMA_SLOW      = 200
+MACD_FAST     = 12
+MACD_SLOW     = 26
+MACD_SIGNAL   = 9
+RSI_PERIOD    = 14
+ADX_PERIOD    = 14
+ADX_MIN       = 25         # Mindest-Trendstaerke
+ATR_PERIOD    = 14
+MAGIC         = 234567
+CHECK_EVERY   = 15         # Sekunden zwischen Signal-Checks
+SERVER_PORT   = 5000
+# -----------------------------------------------------------------------------
+
+
+# -- SHARED STATE -------------------------------------------------------------
+_lock = threading.Lock()
+_state = {
+    "status":       "starting",
+    "connected":    False,
+    "symbol":       SYMBOL,
+    "account": {
+        "balance":  0,
+        "equity":   0,
+        "profit":   0,
+        "currency": "USD",
+        "leverage": 100,
+        "server":   "",
+        "name":     "",
+    },
+    "positions":    [],
+    "last_signal":  None,
+    "indicators":   {},
+    "candle_pattern": None,
+    "stats": {
+        "trades_total": 0,
+        "trades_win":   0,
+        "win_rate":     0.0,
+        "total_profit": 0.0,
+        "biggest_win":  0.0,
+        "biggest_loss": 0.0,
+    },
+    "price": {
+        "bid":    0,
+        "ask":    0,
+        "spread": 0,
+    },
+    "last_update": "",
+}
+
+
+def state_get():
+    with _lock:
+        return json.loads(json.dumps(_state))
+
+
+def state_set(key, value):
+    with _lock:
+        _state[key] = value
+        _state["last_update"] = datetime.now(timezone.utc).isoformat()
+
+
+# -- INDICATOR ENGINE ---------------------------------------------------------
+
+def ema_series(prices, period):
+    k = 2 / (period + 1)
+    result = [prices[0]]
+    for p in prices[1:]:
+        result.append(p * k + result[-1] * (1 - k))
+    return result
+
+
+def rsi(closes, period=14):
+    if len(closes) < period + 1:
+        return 50.0
+    gains, losses = [], []
+    for i in range(1, len(closes)):
+        d = closes[i] - closes[i - 1]
+        gains.append(max(d, 0))
+        losses.append(max(-d, 0))
+    ag = sum(gains[:period]) / period
+    al = sum(losses[:period]) / period
+    for i in range(period, len(gains)):
+        ag = (ag * (period - 1) + gains[i]) / period
+        al = (al * (period - 1) + losses[i]) / period
+    if al == 0:
+        return 100.0
+    return 100 - (100 / (1 + ag / al))
+
+
+def macd(closes, fast=12, slow=26, signal=9):
+    ema_f = ema_series(closes, fast)
+    ema_s = ema_series(closes, slow)
+    macd_line = [f - s for f, s in zip(ema_f, ema_s)]
+    signal_line = ema_series(macd_line, signal)
+    histogram = [m - s for m, s in zip(macd_line, signal_line)]
+    return macd_line, signal_line, histogram
+
+
+def atr(rates, period=14):
+    trs = []
+    for i in range(1, len(rates)):
+        h = rates[i]["high"]
+        l = rates[i]["low"]
+        pc = rates[i - 1]["close"]
+        trs.append(max(h - l, abs(h - pc), abs(l - pc)))
+    if len(trs) < period:
+        return trs[-1] if trs else 0.001
+    atr_val = sum(trs[:period]) / period
+    for tr in trs[period:]:
+        atr_val = (atr_val * (period - 1) + tr) / period
+    return atr_val
+
+
+def adx(rates, period=14):
+    if len(rates) < period + 2:
+        return 0.0
+    plus_dm, minus_dm, trs = [], [], []
+    for i in range(1, len(rates)):
+        h, l = rates[i]["high"], rates[i]["low"]
+        ph, pl = rates[i-1]["high"], rates[i-1]["low"]
+        pc = rates[i-1]["close"]
+        up   = h - ph
+        down = pl - l
+        plus_dm.append(up   if up > down and up > 0   else 0)
+        minus_dm.append(down if down > up and down > 0 else 0)
+        trs.append(max(h - l, abs(h - pc), abs(l - pc)))
+
+    def smooth(arr, p):
+        s = sum(arr[:p])
+        result = [s]
+        for v in arr[p:]:
+            s = s - s / p + v
+            result.append(s)
+        return result
+
+    tr_s  = smooth(trs, period)
+    pdm_s = smooth(plus_dm, period)
+    mdm_s = smooth(minus_dm, period)
+
+    pdi = [100 * p / t if t else 0 for p, t in zip(pdm_s, tr_s)]
+    mdi = [100 * m / t if t else 0 for m, t in zip(mdm_s, tr_s)]
+    dx  = [100 * abs(p - m) / (p + m) if (p + m) else 0 for p, m in zip(pdi, mdi)]
+
+    if len(dx) < period:
+        return sum(dx) / len(dx)
+    adx_val = sum(dx[:period]) / period
+    for d in dx[period:]:
+        adx_val = (adx_val * (period - 1) + d) / period
+    return adx_val
+
+
+def market_structure(closes, lookback=10):
+    if len(closes) < lookback * 2:
+        return "neutral"
+    mid = len(closes) // 2
+    first_half  = closes[:mid]
+    second_half = closes[mid:]
+    prev_high = max(first_half)
+    prev_low  = min(first_half)
+    curr_high = max(second_half)
+    curr_low  = min(second_half)
+    if curr_high > prev_high and curr_low > prev_low:
+        return "bullish"
+    if curr_high < prev_high and curr_low < prev_low:
+        return "bearish"
+    return "neutral"
+
+
+# -- CANDLESTICK PATTERN ENGINE -----------------------------------------------
+
+def candle_body(c):
+    return abs(c["close"] - c["open"])
+
+def candle_range(c):
+    return c["high"] - c["low"] or 0.00001
+
+def upper_shadow(c):
+    return c["high"] - max(c["open"], c["close"])
+
+def lower_shadow(c):
+    return min(c["open"], c["close"]) - c["low"]
+
+def is_bullish(c):
+    return c["close"] > c["open"]
+
+def is_bearish(c):
+    return c["close"] < c["open"]
+
+
+def detect_candle_patterns(rates):
+    if len(rates) < 3:
+        return None, "neutral"
+
+    c0 = rates[-1]
+    c1 = rates[-2]
+    c2 = rates[-3]
+
+    body0  = candle_body(c0)
+    body1  = candle_body(c1)
+    range0 = candle_range(c0)
+    range1 = candle_range(c1)
+    us0    = upper_shadow(c0)
+    ls0    = lower_shadow(c0)
+    us1    = upper_shadow(c1)
+    ls1    = lower_shadow(c1)
+
+    avg_body = (candle_body(c0) + candle_body(c1) + candle_body(c2)) / 3
+
+    # BULLISCHE PATTERNS
+    if (is_bullish(c0) and ls0 >= body0 * 2 and us0 <= body0 * 0.3 and body0 < range0 * 0.4):
+        return "Hammer", "bullish"
+
+    if (is_bullish(c0) and us0 >= body0 * 2 and ls0 <= body0 * 0.3 and body0 < range0 * 0.4):
+        return "Inverted Hammer", "bullish"
+
+    if (body0 <= range0 * 0.05 and ls0 >= range0 * 0.6 and us0 <= range0 * 0.1):
+        return "Dragonfly Doji", "bullish"
+
+    if (is_bearish(c1) and is_bullish(c0) and
+            c0["open"] < c1["close"] and c0["close"] > c1["open"] and body0 > body1):
+        return "Bullish Engulfing", "bullish"
+
+    if (is_bearish(c1) and is_bullish(c0) and
+            c0["open"] < c1["low"] and
+            c0["close"] > (c1["open"] + c1["close"]) / 2 and
+            c0["close"] < c1["open"]):
+        return "Piercing Line", "bullish"
+
+    if (is_bearish(c2) and candle_body(c1) < avg_body * 0.3 and
+            is_bullish(c0) and c0["close"] > (c2["open"] + c2["close"]) / 2):
+        return "Morning Star", "bullish"
+
+    if (is_bullish(c0) and is_bullish(c1) and is_bullish(c2) and
+            c0["close"] > c1["close"] > c2["close"] and
+            c0["open"] > c1["open"] > c2["open"] and
+            us0 < body0 * 0.3 and us1 < body1 * 0.3):
+        return "Three White Soldiers", "bullish"
+
+    if (is_bearish(c1) and is_bullish(c0) and abs(c0["low"] - c1["low"]) < range0 * 0.05):
+        return "Tweezer Bottom", "bullish"
+
+    # BEARISCHE PATTERNS
+    if (is_bearish(c0) and us0 >= body0 * 2 and ls0 <= body0 * 0.3 and body0 < range0 * 0.4):
+        return "Shooting Star", "bearish"
+
+    if (is_bearish(c0) and ls0 >= body0 * 2 and us0 <= body0 * 0.3 and
+            body0 < range0 * 0.4 and is_bullish(c1)):
+        return "Hanging Man", "bearish"
+
+    if (body0 <= range0 * 0.05 and us0 >= range0 * 0.6 and ls0 <= range0 * 0.1):
+        return "Gravestone Doji", "bearish"
+
+    if (is_bullish(c1) and is_bearish(c0) and
+            c0["open"] > c1["close"] and c0["close"] < c1["open"] and body0 > body1):
+        return "Bearish Engulfing", "bearish"
+
+    if (is_bullish(c1) and is_bearish(c0) and
+            c0["open"] > c1["high"] and
+            c0["close"] < (c1["open"] + c1["close"]) / 2 and
+            c0["close"] > c1["open"]):
+        return "Dark Cloud Cover", "bearish"
+
+    if (is_bullish(c2) and candle_body(c1) < avg_body * 0.3 and
+            is_bearish(c0) and c0["close"] < (c2["open"] + c2["close"]) / 2):
+        return "Evening Star", "bearish"
+
+    if (is_bearish(c0) and is_bearish(c1) and is_bearish(c2) and
+            c0["close"] < c1["close"] < c2["close"] and
+            c0["open"] < c1["open"] < c2["open"] and
+            ls0 < body0 * 0.3 and ls1 < body1 * 0.3):
+        return "Three Black Crows", "bearish"
+
+    if (is_bullish(c1) and is_bearish(c0) and abs(c0["high"] - c1["high"]) < range0 * 0.05):
+        return "Tweezer Top", "bearish"
+
+    # NEUTRALE PATTERNS
+    if body0 <= range0 * 0.05:
+        return "Doji", "neutral"
+
+    if (body0 < avg_body * 0.3 and us0 > body0 and ls0 > body0):
+        return "Spinning Top", "neutral"
+
+    return None, "neutral"
+
+
+# -- SIGNAL ENGINE ------------------------------------------------------------
+
+def pip_value(symbol):
+    return 0.0001 if "JPY" not in symbol else 0.01
+
+
+def calc_lot(balance, sl_price_dist, symbol):
+    risk_amount = balance * (RISK_PCT / 100)
+    lot = risk_amount / (sl_price_dist * 100000)
+    return round(max(lot, 0.01), 2)
+
+
+def get_bars(symbol, timeframe, n=250):
+    if not MT5_AVAILABLE:
+        return None
+    rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, n)
+    if rates is None or len(rates) == 0:
+        return None
+    return rates
+
+
+def get_signal(rates):
+    closes = [r["close"] for r in rates]
+    highs  = [r["high"]  for r in rates]
+    lows   = [r["low"]   for r in rates]
+
+    if len(closes) < EMA_SLOW + 10:
+        return None, {}
+
+    ema_f  = ema_series(closes, EMA_FAST)
+    ema_m  = ema_series(closes, EMA_MID)
+    ema_s  = ema_series(closes, EMA_SLOW)
+    rsi_v  = rsi(closes[-RSI_PERIOD - 10:], RSI_PERIOD)
+    macd_l, macd_sig, macd_hist = macd(closes, MACD_FAST, MACD_SLOW, MACD_SIGNAL)
+    atr_v  = atr(list(rates)[-ATR_PERIOD - 5:], ATR_PERIOD)
+    adx_v  = adx(list(rates)[-ADX_PERIOD * 3:], ADX_PERIOD)
+    struct = market_structure(closes[-30:])
+
+    pattern_name, pattern_bias = detect_candle_patterns(list(rates)[-3:])
+
+    indicators = {
+        "ema20":         round(ema_f[-1], 5),
+        "ema50":         round(ema_m[-1], 5),
+        "ema200":        round(ema_s[-1], 5),
+        "rsi":           round(rsi_v, 1),
+        "macd":          round(macd_l[-1], 6),
+        "macd_sig":      round(macd_sig[-1], 6),
+        "macd_hist":     round(macd_hist[-1], 6),
+        "atr":           round(atr_v, 5),
+        "adx":           round(adx_v, 1),
+        "structure":     struct,
+        "candle_pattern": pattern_name,
+        "candle_bias":    pattern_bias,
+    }
+
+    ema_bull = ema_f[-1] > ema_m[-1] > ema_s[-1]
+    ema_bear = ema_f[-1] < ema_m[-1] < ema_s[-1]
+    macd_bull = macd_hist[-1] > 0 and macd_l[-1] > macd_sig[-1]
+    macd_bear = macd_hist[-1] < 0 and macd_l[-1] < macd_sig[-1]
+
+    signal = None
+
+    if (ema_bull and adx_v >= ADX_MIN and 40 <= rsi_v <= 65 and
+            macd_bull and struct == "bullish" and pattern_bias == "bullish"):
+        signal = "BUY"
+
+    elif (ema_bear and adx_v >= ADX_MIN and 35 <= rsi_v <= 60 and
+            macd_bear and struct == "bearish" and pattern_bias == "bearish"):
+        signal = "SELL"
+
+    return signal, indicators
+
+
+def open_position(symbol, signal, balance, atr_v):
+    if not MT5_AVAILABLE:
+        return False
+    tick = mt5.symbol_info_tick(symbol)
+    if tick is None:
+        return False
+
+    sl_dist = atr_v * ATR_SL_MULT
+    tp_dist = atr_v * ATR_TP_MULT
+    lot     = calc_lot(balance, sl_dist, symbol)
+
+    if signal == "BUY":
+        price = tick.ask
+        sl    = round(price - sl_dist, 5)
+        tp    = round(price + tp_dist, 5)
+        order_type = mt5.ORDER_TYPE_BUY
+    else:
+        price = tick.bid
+        sl    = round(price + sl_dist, 5)
+        tp    = round(price - tp_dist, 5)
+        order_type = mt5.ORDER_TYPE_SELL
+
+    request = {
+        "action":       mt5.TRADE_ACTION_DEAL,
+        "symbol":       symbol,
+        "volume":       lot,
+        "type":         order_type,
+        "price":        price,
+        "sl":           sl,
+        "tp":           tp,
+        "magic":        MAGIC,
+        "comment":      "CLAUDE+QUANT v2",
+        "type_time":    mt5.ORDER_TIME_GTC,
+        "type_filling": mt5.ORDER_FILLING_IOC,
+    }
+    result = mt5.order_send(request)
+    if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+        pip = pip_value(symbol)
+        sl_pips = round(sl_dist / pip)
+        tp_pips = round(tp_dist / pip)
+        print(f"[BOT] {signal} eroeffnet: {lot} Lots @ {price}  SL={sl}({sl_pips}p)  TP={tp}({tp_pips}p)")
+        return True
+    else:
+        code = result.retcode if result else "N/A"
+        print(f"[BOT] Order fehlgeschlagen: {code}")
+        return False
+
+
+def has_open_position(symbol):
+    if not MT5_AVAILABLE:
+        return False
+    positions = mt5.positions_get(symbol=symbol)
+    return positions is not None and len(positions) > 0
+
+
+def update_account():
+    if not MT5_AVAILABLE:
+        return
+    info = mt5.account_info()
+    if info is None:
+        return
+    state_set("account", {
+        "balance":  round(info.balance, 2),
+        "equity":   round(info.equity, 2),
+        "profit":   round(info.profit, 2),
+        "currency": info.currency,
+        "leverage": info.leverage,
+        "server":   info.server,
+        "name":     info.name,
+    })
+
+    positions = mt5.positions_get()
+    pos_list = []
+    if positions:
+        for p in positions:
+            pos_list.append({
+                "ticket": p.ticket,
+                "symbol": p.symbol,
+                "type":   "BUY" if p.type == 0 else "SELL",
+                "volume": p.volume,
+                "open":   p.price_open,
+                "sl":     p.sl,
+                "tp":     p.tp,
+                "profit": round(p.profit, 2),
+                "magic":  p.magic,
+            })
+    state_set("positions", pos_list)
+
+    deals = mt5.history_deals_get(
+        datetime(2000, 1, 1, tzinfo=timezone.utc),
+        datetime.now(timezone.utc)
+    )
+    if deals:
+        our_deals = [d for d in deals if d.magic == MAGIC and d.profit != 0]
+        profits   = [d.profit for d in our_deals]
+        wins      = [p for p in profits if p > 0]
+        state_set("stats", {
+            "trades_total": len(profits),
+            "trades_win":   len(wins),
+            "win_rate":     round(len(wins) / len(profits) * 100, 1) if profits else 0.0,
+            "total_profit": round(sum(profits), 2),
+            "biggest_win":  round(max(profits), 2) if profits else 0.0,
+            "biggest_loss": round(min(profits), 2) if profits else 0.0,
+        })
+
+    tick = mt5.symbol_info_tick(SYMBOL)
+    if tick:
+        pip = pip_value(SYMBOL)
+        state_set("price", {
+            "bid":    round(tick.bid, 5),
+            "ask":    round(tick.ask, 5),
+            "spread": round((tick.ask - tick.bid) / pip, 1),
+        })
+
+
+# -- LOCAL HTTP API SERVER -----------------------------------------------------
+class APIHandler(BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        pass
+
+    def do_GET(self):
+        if self.path in ("/data", "/data/"):
+            data = json.dumps(state_get(), indent=2).encode()
+            self.send_response(200)
+            self.send_header("Content-Type",  "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", len(data))
+            self.end_headers()
+            self.wfile.write(data)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.end_headers()
+
+
+def run_server():
+    server = HTTPServer(("127.0.0.1", SERVER_PORT), APIHandler)
+    print(f"[API] Server laeuft auf http://127.0.0.1:{SERVER_PORT}/data")
+    server.serve_forever()
+
+
+# -- MAIN BOT LOOP ------------------------------------------------------------
+def bot_loop():
+    if not MT5_AVAILABLE:
+        state_set("status", "error: MetaTrader5 nicht installiert")
+        state_set("connected", False)
+        print("[BOT] MetaTrader5 nicht installiert.")
+        print("[BOT] Installieren mit: pip install MetaTrader5")
+        return
+
+    if not mt5.initialize():
+        state_set("status", "error: MT5 nicht gestartet")
+        state_set("connected", False)
+        print("[BOT] Konnte nicht mit MT5 verbinden. Ist der Terminal geoeffnet?")
+        return
+
+    state_set("connected", True)
+    state_set("status", "running")
+    print(f"[BOT] Verbunden mit MT5  |  Symbol: {SYMBOL}  |  TF: M15")
+    print(f"[BOT] Strategie: EMA{EMA_FAST}/{EMA_MID}/{EMA_SLOW} + MACD + RSI + ADX + Candlestick Patterns")
+    print(f"[BOT] Risiko: {RISK_PCT}% pro Trade  |  SL: ATRx{ATR_SL_MULT}  |  TP: ATRx{ATR_TP_MULT}")
+
+    while True:
+        try:
+            update_account()
+
+            rates = get_bars(SYMBOL, TIMEFRAME, 250)
+            if rates is not None:
+                signal, indicators = get_signal(rates)
+
+                pattern = indicators.get("candle_pattern")
+                bias    = indicators.get("candle_bias", "neutral")
+                adx_v   = indicators.get("adx", 0)
+                atr_v   = indicators.get("atr", 0.001)
+                rsi_v   = indicators.get("rsi", 50)
+
+                with _lock:
+                    _state["last_signal"] = {
+                        "signal":   signal,
+                        "rsi":      rsi_v,
+                        "ema_fast": indicators.get("ema20"),
+                        "ema_slow": indicators.get("ema50"),
+                        "time":     datetime.now(timezone.utc).isoformat(),
+                    }
+                    _state["indicators"]     = indicators
+                    _state["candle_pattern"] = {"name": pattern, "bias": bias}
+
+                status_line = (
+                    f"RSI={rsi_v:.1f}  ADX={adx_v:.1f}  "
+                    f"Kerze={pattern or 'keins'}({bias})  "
+                    f"Struktur={indicators.get('structure')}  "
+                    f"Signal={signal or 'WARTE'}"
+                )
+                print(f"[BOT] {status_line}")
+
+                if signal and not has_open_position(SYMBOL):
+                    balance = _state["account"].get("balance", 1000)
+                    print(f"[BOT] *** {signal} SIGNAL BESTAETIGT -- oeffne Position ***")
+                    open_position(SYMBOL, signal, balance, atr_v)
+
+        except Exception as e:
+            print(f"[BOT] Fehler: {e}")
+            state_set("status", f"error: {e}")
+
+        time.sleep(CHECK_EVERY)
+
+
+# -- ENTRY POINT --------------------------------------------------------------
+if __name__ == "__main__":
+    print("=" * 65)
+    print("  CLAUDE + QUANT  |  Trading Bot v2.0  |  Elite Strategy Stack")
+    print("=" * 65)
+    print(f"  Symbol      : {SYMBOL}")
+    print(f"  Timeframe   : M15")
+    print(f"  EMA Trend   : {EMA_FAST}/{EMA_MID}/{EMA_SLOW}")
+    print(f"  Momentum    : RSI-{RSI_PERIOD}  +  MACD {MACD_FAST}/{MACD_SLOW}/{MACD_SIGNAL}")
+    print(f"  Trendstaerke: ADX-{ADX_PERIOD} (min. {ADX_MIN})")
+    print(f"  Stop-Loss   : ATR-{ATR_PERIOD} x {ATR_SL_MULT}")
+    print(f"  Take-Profit : ATR-{ATR_PERIOD} x {ATR_TP_MULT}")
+    print(f"  Kerzen      : 18 Patterns (Hammer, Engulfing, Doji, ...)")
+    print(f"  Risiko      : {RISK_PCT}% pro Trade")
+    print(f"  Dashboard   : http://127.0.0.1:{SERVER_PORT}/data")
+    print("=" * 65)
+
+    t = threading.Thread(target=run_server, daemon=True)
+    t.start()
+
+    bot_loop()
