@@ -478,6 +478,10 @@ body {
 </div>
 
 <script>
+const BOT_API = 'http://127.0.0.1:5000/data';
+let botConnected = false;
+let pfBase = 524770, btcBase = 77048;
+
 // ── Clock ────────────────────────────────────────────────
 function updateClock() {
   const d = new Date();
@@ -489,9 +493,89 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
-// ── Live portfolio value ─────────────────────────────────
-let pfBase = 524770;
+// ── Fetch real data from bot ─────────────────────────────
+async function fetchBotData() {
+  try {
+    const res = await fetch(BOT_API, { signal: AbortSignal.timeout(2000) });
+    if (!res.ok) throw new Error('bad response');
+    const d = await res.json();
+    botConnected = true;
+    applyRealData(d);
+  } catch {
+    botConnected = false;
+  }
+}
+
+function applyRealData(d) {
+  const acc = d.account || {};
+  const sig = d.last_signal || {};
+  const st  = d.stats || {};
+  const pr  = d.price || {};
+
+  // Header status
+  document.querySelector('.channel').textContent =
+    (acc.name || 'DEMO') + ' · ' + (acc.server || 'MT5');
+
+  // Portfolio value
+  if (acc.equity) {
+    const eq = acc.equity;
+    document.getElementById('pfValue').textContent =
+      acc.currency + ' ' + eq.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+    pfBase = eq;
+  }
+
+  // PnL
+  if (acc.profit !== undefined) {
+    const pnl = acc.profit;
+    const sign = pnl >= 0 ? '+' : '';
+    document.getElementById('pnlVal').textContent =
+      'OPEN P&L  ' + sign + pnl.toFixed(2) + ' ' + (acc.currency || 'USD');
+    document.getElementById('pnlVal').style.color = pnl >= 0 ? 'var(--green)' : 'var(--red)';
+  }
+
+  // Stats
+  if (st.trades_total !== undefined) {
+    document.getElementById('trades').textContent = st.trades_total.toLocaleString();
+  }
+
+  // Price label
+  if (pr.bid) {
+    document.getElementById('btcPrice').textContent =
+      d.symbol + '  ' + pr.bid + ' / ' + pr.ask +
+      '  spread:' + pr.spread + 'p';
+    document.querySelector('.pair-label').firstChild.textContent =
+      d.symbol + ' · M15  ';
+  }
+
+  // Signal badge
+  if (sig.signal) {
+    const badge = document.getElementById('fillStep');
+    badge.textContent = sig.signal;
+    badge.style.background = sig.signal === 'BUY' ? 'var(--green)' : 'var(--red)';
+    badge.style.color = '#000';
+  }
+
+  // Biggest win
+  if (st.biggest_win !== undefined && st.biggest_win > 0) {
+    document.querySelector('.biggest-win .g').textContent =
+      '$' + st.biggest_win.toFixed(2);
+  }
+
+  // Win rate
+  if (st.win_rate !== undefined) {
+    document.querySelectorAll('.stat-val.g')[0].textContent = st.win_rate + '%';
+  }
+
+  // Live/connected indicator
+  document.querySelector('.live-dot').style.background = d.connected ? 'var(--green)' : 'var(--red)';
+}
+
+setInterval(fetchBotData, 3000);
+fetchBotData();
+
+// ── Simulation fallback (when bot not running) ────────────
 function updatePortfolio() {
+  if (botConnected) return;
   pfBase += (Math.random() - 0.46) * 80;
   const val = Math.round(pfBase);
   document.getElementById('pfValue').textContent = '$' + val.toLocaleString();
@@ -503,9 +587,9 @@ function updatePortfolio() {
 }
 setInterval(updatePortfolio, 800);
 
-// ── BTC price ────────────────────────────────────────────
-let btcBase = 77048;
+// ── Price simulation fallback ────────────────────────────
 function updateBTC() {
+  if (botConnected) return;
   btcBase += (Math.random() - 0.48) * 50;
   document.getElementById('btcPrice').textContent =
     '▲ $' + Math.round(btcBase).toLocaleString();
