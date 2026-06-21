@@ -295,6 +295,53 @@ body {
   animation: pulse 1.2s infinite;
   margin-right: 4px;
 }
+
+/* ── ACTIVE TAG ─────────────── */
+.tag-active { outline: 2px solid #fff; outline-offset: 1px; }
+.tag-orange { cursor: pointer; }
+
+/* ── TOAST NOTIFICATION ─────── */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #0b1a2e;
+  border: 1px solid var(--green);
+  color: var(--green);
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  padding: 8px 16px;
+  border-radius: 4px;
+  z-index: 999;
+  opacity: 0;
+  transition: opacity .3s;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.toast.show { opacity: 1; }
+
+/* ── STEP TOOLTIP ───────────── */
+.step-tooltip {
+  position: fixed;
+  bottom: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #0b1a2e;
+  border: 1px solid var(--blue);
+  color: var(--text);
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  padding: 8px 14px;
+  border-radius: 4px;
+  z-index: 998;
+  opacity: 0;
+  transition: opacity .3s;
+  pointer-events: none;
+  max-width: 300px;
+  text-align: center;
+}
+.step-tooltip.show { opacity: 1; }
 </style>
 </head>
 <body>
@@ -302,10 +349,10 @@ body {
 <!-- ── HEADER ──────────────────────────────────────────── -->
 <div class="header">
   <span class="logo"><span>Q</span> CLAUDE + QUANT</span>
-  <span class="tag tag-orange">RANDOM</span>
-  <span class="tag tag-orange">KELLY</span>
-  <span class="tag tag-orange">SELF-LEARN</span>
-  <span class="tag tag-blue">SENTIMENT EXPORT</span>
+  <span class="tag tag-orange" id="tagRandom" onclick="setMode('RANDOM')">RANDOM</span>
+  <span class="tag tag-orange" id="tagKelly" onclick="setMode('KELLY')">KELLY</span>
+  <span class="tag tag-orange tag-active" id="tagLearn" onclick="setMode('SELF-LEARN')">SELF-LEARN</span>
+  <span class="tag tag-blue" id="exportBtn" onclick="exportData()" style="cursor:pointer">SENTIMENT EXPORT</span>
   <span class="hdr-clock" id="clock">14:33:13</span>
 </div>
 
@@ -373,12 +420,12 @@ body {
     <span>FILL &nbsp;<b style="color:var(--yellow)">1.0/13</b></span>
   </div>
   <div class="exec-steps">
-    <div class="step done">SCAN</div>
-    <div class="step done">DETECT</div>
-    <div class="step done">VALIDATE</div>
-    <div class="step done">SIZE</div>
-    <div class="step active" id="fillStep">FILL</div>
-    <div class="step">SETTLE</div>
+    <div class="step done" id="stepScan"     onclick="showStepInfo('SCAN')">SCAN</div>
+    <div class="step done" id="stepDetect"  onclick="showStepInfo('DETECT')">DETECT</div>
+    <div class="step done" id="stepValidate"onclick="showStepInfo('VALIDATE')">VALIDATE</div>
+    <div class="step done" id="stepSize"    onclick="showStepInfo('SIZE')">SIZE</div>
+    <div class="step active" id="stepFill"  onclick="showStepInfo('FILL')">FILL</div>
+    <div class="step" id="stepSettle"       onclick="showStepInfo('SETTLE')">SETTLE</div>
   </div>
   <div class="exec-bar"><div class="exec-bar-fill" id="execBar" style="width:80%"></div></div>
 </div>
@@ -477,10 +524,157 @@ body {
   </div>
 </div>
 
+<div class="toast" id="toast"></div>
+<div class="step-tooltip" id="stepTooltip"></div>
+
 <script>
 const BOT_API = 'http://127.0.0.1:5000/data';
 let botConnected = false;
 let pfBase = 524770, btcBase = 77048;
+let cachedBotData = null;
+let currentMode = 'SELF-LEARN';
+
+// ── Toast helper ─────────────────────────────────────────────
+function toast(msg, color) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.borderColor = color || 'var(--green)';
+  el.style.color = color || 'var(--green)';
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+// ── SENTIMENT EXPORT ─────────────────────────────────────────
+function exportData() {
+  const d = cachedBotData;
+  const now = new Date().toISOString();
+  let csv = 'CLAUDE+QUANT SENTIMENT EXPORT\n';
+  csv += 'Timestamp,' + now + '\n\n';
+
+  if (d && d.account) {
+    csv += 'ACCOUNT\n';
+    csv += 'Balance,' + d.account.balance + '\n';
+    csv += 'Equity,' + d.account.equity + '\n';
+    csv += 'Open P&L,' + d.account.profit + '\n';
+    csv += 'Currency,' + d.account.currency + '\n';
+    csv += 'Leverage,' + d.account.leverage + '\n';
+    csv += 'Server,' + d.account.server + '\n\n';
+  }
+
+  if (d && d.stats) {
+    csv += 'PERFORMANCE\n';
+    csv += 'Total Trades,' + d.stats.trades_total + '\n';
+    csv += 'Wins,' + d.stats.trades_win + '\n';
+    csv += 'Win Rate,' + d.stats.win_rate + '%\n';
+    csv += 'Total Profit,' + d.stats.total_profit + '\n';
+    csv += 'Biggest Win,' + d.stats.biggest_win + '\n';
+    csv += 'Biggest Loss,' + d.stats.biggest_loss + '\n\n';
+  }
+
+  if (d && d.indicators) {
+    csv += 'INDICATORS\n';
+    csv += 'EMA20,' + d.indicators.ema20 + '\n';
+    csv += 'EMA50,' + d.indicators.ema50 + '\n';
+    csv += 'EMA200,' + d.indicators.ema200 + '\n';
+    csv += 'RSI,' + d.indicators.rsi + '\n';
+    csv += 'MACD,' + d.indicators.macd + '\n';
+    csv += 'ADX,' + d.indicators.adx + '\n';
+    csv += 'ATR,' + d.indicators.atr + '\n';
+    csv += 'Structure,' + d.indicators.structure + '\n';
+    csv += 'Candle Pattern,' + (d.indicators.candle_pattern || 'none') + '\n\n';
+  }
+
+  if (d && d.price) {
+    csv += 'PRICE\n';
+    csv += 'Bid,' + d.price.bid + '\n';
+    csv += 'Ask,' + d.price.ask + '\n';
+    csv += 'Spread,' + d.price.spread + 'p\n\n';
+  }
+
+  if (d && d.last_signal) {
+    csv += 'LAST SIGNAL\n';
+    csv += 'Signal,' + (d.last_signal.signal || 'NONE') + '\n';
+    csv += 'RSI,' + d.last_signal.rsi + '\n';
+    csv += 'Time,' + d.last_signal.time + '\n\n';
+  }
+
+  if (!d) {
+    csv += 'NOTE: Bot offline - simulation data only\n';
+    csv += 'Portfolio Value,' + document.getElementById('pfValue').textContent + '\n';
+    csv += 'Trades,' + document.getElementById('trades').textContent + '\n';
+  }
+
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'claude-quant-export-' + now.slice(0,10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+
+  const btn = document.getElementById('exportBtn');
+  btn.textContent = 'EXPORTED ✓';
+  setTimeout(() => btn.textContent = 'SENTIMENT EXPORT', 2000);
+  toast('Export gespeichert: claude-quant-export-' + now.slice(0,10) + '.csv');
+}
+
+// ── MODE TOGGLE (RANDOM / KELLY / SELF-LEARN) ────────────────
+const modeInfo = {
+  'RANDOM':     'Zufaelliges Lot-Sizing (nur fuer Tests)',
+  'KELLY':      'Kelly Criterion: optimale Lot-Groesse basierend auf Win-Rate',
+  'SELF-LEARN': 'ATR-basiertes Sizing: 1% Risiko, dynamisch angepasst (aktiv)',
+};
+const modeIds = { 'RANDOM': 'tagRandom', 'KELLY': 'tagKelly', 'SELF-LEARN': 'tagLearn' };
+
+function setMode(mode) {
+  currentMode = mode;
+  Object.entries(modeIds).forEach(([m, id]) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('tag-active', m === mode);
+  });
+  toast(modeInfo[mode] || mode, mode === 'SELF-LEARN' ? 'var(--green)' : 'var(--orange)');
+}
+
+// ── EXECUTION STEP INFO ──────────────────────────────────────
+const stepInfo = {
+  'SCAN':     'SCAN — Bot laedt 250 M15-Kerzen von MT5',
+  'DETECT':   'DETECT — EMA 20/50/200 + MACD werden berechnet',
+  'VALIDATE': 'VALIDATE — ADX > 25, RSI-Check, Market Structure',
+  'SIZE':     'SIZE — ATR x 1.5 SL, ATR x 3.0 TP, 1% Lot-Kalkulation',
+  'FILL':     'FILL — Order wird an MT5 gesendet (BUY oder SELL)',
+  'SETTLE':   'SETTLE — Position wird ueberwacht bis SL oder TP',
+};
+let tooltipTimer;
+
+function showStepInfo(step) {
+  const el = document.getElementById('stepTooltip');
+  el.textContent = stepInfo[step] || step;
+  el.classList.add('show');
+  clearTimeout(tooltipTimer);
+  tooltipTimer = setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+// ── EXEC CYCLE: Live-Status wenn Bot verbunden ───────────────
+function updateExecCycle(d) {
+  const steps = ['stepScan','stepDetect','stepValidate','stepSize','stepFill','stepSettle'];
+  const positions = d.positions || [];
+  const signal    = d.last_signal ? d.last_signal.signal : null;
+  const hasPos    = positions.length > 0;
+
+  let activeIdx = 0;
+  if (hasPos)    activeIdx = 5;
+  else if (signal) activeIdx = 4;
+  else            activeIdx = 1;
+
+  steps.forEach((id, i) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.className = 'step';
+    if (i < activeIdx)       el.classList.add('done');
+    else if (i === activeIdx) el.classList.add('active');
+  });
+}
 
 // ── Clock ────────────────────────────────────────────────
 function updateClock() {
@@ -507,6 +701,8 @@ async function fetchBotData() {
 }
 
 function applyRealData(d) {
+  cachedBotData = d;
+  updateExecCycle(d);
   const acc = d.account || {};
   const sig = d.last_signal || {};
   const st  = d.stats || {};
@@ -547,9 +743,9 @@ function applyRealData(d) {
       d.symbol + ' · M15  ';
   }
 
-  // Signal badge
+  // Signal badge on FILL step
   if (sig.signal) {
-    const badge = document.getElementById('fillStep');
+    const badge = document.getElementById('stepFill');
     badge.textContent = sig.signal;
     badge.style.background = sig.signal === 'BUY' ? 'var(--green)' : 'var(--red)';
     badge.style.color = '#000';
