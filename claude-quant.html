@@ -31,8 +31,6 @@ body {
   max-width: 620px;
   margin: 0 auto;
 }
-
-/* ── HEADER ──────────────────────────────────── */
 .header {
   background: var(--bg3);
   border-bottom: 1px solid var(--border);
@@ -42,25 +40,13 @@ body {
   gap: 6px;
   flex-wrap: wrap;
 }
-.logo {
-  color: #fff;
-  font-weight: bold;
-  font-size: 13px;
-  letter-spacing: 1px;
-  margin-right: 4px;
-}
+.logo { color: #fff; font-weight: bold; font-size: 13px; letter-spacing: 1px; margin-right: 4px; }
 .logo span { color: var(--yellow); }
-.tag {
-  padding: 1px 6px;
-  font-size: 9px;
-  font-weight: bold;
-  letter-spacing: .5px;
-  border-radius: 2px;
-}
-.tag-orange { background: var(--orange); color: #000; }
+.tag { padding: 1px 6px; font-size: 9px; font-weight: bold; letter-spacing: .5px; border-radius: 2px; }
+.tag-orange { background: var(--orange); color: #000; cursor: pointer; }
 .tag-blue   { background: #1a3a6a; color: var(--blue); border: 1px solid var(--blue); }
+.tag-active { outline: 2px solid #fff; outline-offset: 1px; }
 .hdr-clock  { margin-left: auto; color: #fff; font-size: 13px; font-weight: bold; letter-spacing: 2px; }
-
 .ticker-bar {
   background: #040c18;
   border-bottom: 1px solid var(--border);
@@ -74,285 +60,125 @@ body {
 }
 .ticker-bar .hi { color: var(--green); }
 .ticker-bar .lo { color: var(--red); }
-
-/* ── TOP TWO COLUMNS ─────────────────────────── */
 .top-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   border-bottom: 1px solid var(--border);
 }
-
-/* Left: portfolio */
-.portfolio {
-  padding: 8px;
-  border-right: 1px solid var(--border);
-}
+.portfolio { padding: 8px; border-right: 1px solid var(--border); }
 .channel { color: var(--dim); font-size: 9px; margin-bottom: 2px; }
-.pf-value {
-  font-size: 32px;
-  font-weight: bold;
-  color: var(--yellow);
-  letter-spacing: -1px;
-  line-height: 1;
-  margin-bottom: 2px;
-}
+.pf-value { font-size: 32px; font-weight: bold; color: var(--yellow); letter-spacing: -1px; line-height: 1; margin-bottom: 2px; }
 .pf-pnl { font-size: 9px; margin-bottom: 6px; }
 .pf-pnl .g { color: var(--green); }
-.stats-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  margin-bottom: 6px;
-}
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 6px; }
 .stat-box { background: var(--bg3); padding: 4px 6px; border-radius: 2px; }
 .stat-label { color: var(--dim); font-size: 8px; }
 .stat-val { font-size: 13px; font-weight: bold; color: #fff; }
 .stat-val.g { color: var(--green); }
 .stat-val.r { color: var(--red); }
-.liq-risk {
-  font-size: 9px;
-  background: #1a0a0a;
-  border: 1px solid #3a1010;
-  display: inline-block;
-  padding: 2px 6px;
-  border-radius: 2px;
-}
+.liq-risk { font-size: 9px; background: #1a0a0a; border: 1px solid #3a1010; display: inline-block; padding: 2px 6px; border-radius: 2px; }
 .liq-risk .r { color: var(--red); }
-
-/* Right: chart + stats */
 .chart-panel { padding: 8px; }
-.biggest-win {
-  font-size: 9px;
-  margin-bottom: 3px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
+.biggest-win { font-size: 9px; margin-bottom: 3px; display: flex; align-items: center; gap: 6px; }
 .biggest-win .g { color: var(--green); font-size: 12px; font-weight: bold; }
-.mult-box {
-  background: var(--green);
-  color: #000;
-  font-weight: bold;
-  font-size: 12px;
-  padding: 1px 6px;
-  border-radius: 2px;
-  margin-left: auto;
-}
-.pair-label {
-  font-size: 9px;
-  color: var(--dim);
-  margin-bottom: 3px;
-  display: flex;
-  justify-content: space-between;
-}
+.mult-box { background: var(--green); color: #000; font-weight: bold; font-size: 12px; padding: 1px 6px; border-radius: 2px; margin-left: auto; }
+.pair-label { font-size: 9px; color: var(--dim); margin-bottom: 3px; display: flex; justify-content: space-between; }
 .pair-label span { color: var(--green); }
 #candleChart { width: 100% !important; display: block; }
-.chart-footer {
-  margin-top: 4px;
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 3px;
-}
+.chart-footer { margin-top: 4px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 3px; }
 .cf-box { background: var(--bg3); padding: 3px 5px; border-radius: 2px; font-size: 8px; }
 .cf-box .lbl { color: var(--dim); }
 .cf-box .val { font-size: 10px; font-weight: bold; }
-
-/* ── EXECUTION CYCLE ──────────────────────────── */
 .section { border-bottom: 1px solid var(--border); padding: 6px 8px; }
-.section-title {
-  font-size: 8px;
-  color: var(--dim);
-  letter-spacing: 1px;
-  margin-bottom: 5px;
-  display: flex;
-  justify-content: space-between;
-}
-.exec-steps {
-  display: flex;
-  gap: 3px;
-  align-items: center;
-}
+.section-title { font-size: 8px; color: var(--dim); letter-spacing: 1px; margin-bottom: 5px; display: flex; justify-content: space-between; }
+.exec-steps { display: flex; gap: 3px; align-items: center; }
 .step {
-  flex: 1;
-  text-align: center;
-  padding: 4px 2px;
-  font-size: 9px;
-  font-weight: bold;
-  border-radius: 2px;
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  color: var(--dim);
-  cursor: pointer;
-  transition: all .3s;
+  flex: 1; text-align: center; padding: 4px 2px; font-size: 9px; font-weight: bold;
+  border-radius: 2px; background: var(--bg3); border: 1px solid var(--border);
+  color: var(--dim); cursor: pointer; transition: all .3s;
 }
-.step.active {
-  background: var(--green);
-  color: #000;
-  border-color: var(--green);
-}
-.step.done {
-  background: #0a3020;
-  color: var(--green);
-  border-color: #1a5040;
-}
-.exec-bar {
-  margin-top: 5px;
-  height: 4px;
-  background: var(--bg3);
-  border-radius: 2px;
-  overflow: hidden;
-}
-.exec-bar-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--green), #00ffaa);
-  border-radius: 2px;
-  transition: width 1s;
-}
-
-/* ── STRATEGY DECISION TREE ─────────────────────── */
+.step.active { background: var(--green); color: #000; border-color: var(--green); }
+.step.done   { background: #0a3020; color: var(--green); border-color: #1a5040; }
+.exec-bar { margin-top: 5px; height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
+.exec-bar-fill { height: 100%; background: linear-gradient(90deg, var(--green), #00ffaa); border-radius: 2px; transition: width 1s; }
 .tree-section { border-bottom: 1px solid var(--border); padding: 6px 8px; }
 .tree-svg { width: 100%; display: block; }
-
-/* ── ROBUSTNESS MATRIX ──────────────────────────── */
 .matrix-section { border-bottom: 1px solid var(--border); padding: 6px 8px; }
-.matrix-header {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 5px;
-  font-size: 8px;
-}
-.version-badge {
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  padding: 1px 6px;
-  font-size: 8px;
-  color: var(--dim);
-}
+.matrix-header { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 8px; }
+.version-badge { background: var(--bg3); border: 1px solid var(--border); padding: 1px 6px; font-size: 8px; color: var(--dim); }
 .matrix-table { width: 100%; border-collapse: collapse; }
-.matrix-table th {
-  font-size: 7px;
-  color: var(--dim);
-  text-align: center;
-  padding: 2px;
-  border: 1px solid var(--border);
-  background: var(--bg3);
-  letter-spacing: .5px;
-}
-.matrix-table td {
-  text-align: center;
-  font-size: 8px;
-  font-weight: bold;
-  padding: 3px 2px;
-  border: 1px solid #0a1a2a;
-}
-.matrix-table .row-label {
-  font-size: 7px;
-  color: var(--dim);
-  background: var(--bg3);
-  text-align: left;
-  padding-left: 4px;
-  white-space: nowrap;
-}
-
-/* ── MONTE CARLO ────────────────────────────────── */
+.matrix-table th { font-size: 7px; color: var(--dim); text-align: center; padding: 2px; border: 1px solid var(--border); background: var(--bg3); letter-spacing: .5px; }
+.matrix-table td { text-align: center; font-size: 8px; font-weight: bold; padding: 3px 2px; border: 1px solid #0a1a2a; }
+.matrix-table .row-label { font-size: 7px; color: var(--dim); background: var(--bg3); text-align: left; padding-left: 4px; white-space: nowrap; }
 .mc-section { padding: 6px 8px; }
 .mc-grid { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .mc-chart-wrap { position: relative; }
 #mcChart { width: 100% !important; }
-.mc-scale {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  font-size: 9px;
-  text-align: right;
-  min-width: 45px;
-}
+.mc-scale { display: flex; flex-direction: column; justify-content: space-between; font-size: 9px; text-align: right; min-width: 45px; }
 .mc-pos { color: var(--green); }
 .mc-neg { color: var(--red); }
-
-/* ── IN-FLIGHT COUNTER ───── */
-.inflight-badge {
-  background: var(--orange);
-  color: #000;
-  font-weight: bold;
-  font-size: 9px;
-  padding: 1px 6px;
-  border-radius: 2px;
-}
-
-/* ── SCROLLBAR ────────── */
+.inflight-badge { background: var(--orange); color: #000; font-weight: bold; font-size: 9px; padding: 1px 6px; border-radius: 2px; }
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-/* ── LIVE PULSE ────────── */
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
-.live-dot {
-  display: inline-block;
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--green);
-  animation: pulse 1.2s infinite;
-  margin-right: 4px;
+.live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 1.2s infinite; margin-right: 4px; }
+.toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  background: #0b1a2e; border: 1px solid var(--green); color: var(--green);
+  font-family: 'Courier New', monospace; font-size: 11px; padding: 8px 16px;
+  border-radius: 4px; z-index: 999; opacity: 0; transition: opacity .3s;
+  pointer-events: none; white-space: nowrap;
 }
+.toast.show { opacity: 1; }
+.step-tooltip {
+  position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%);
+  background: #0b1a2e; border: 1px solid var(--blue); color: var(--text);
+  font-family: 'Courier New', monospace; font-size: 10px; padding: 8px 14px;
+  border-radius: 4px; z-index: 998; opacity: 0; transition: opacity .3s;
+  pointer-events: none; max-width: 300px; text-align: center;
+}
+.step-tooltip.show { opacity: 1; }
 </style>
 </head>
 <body>
 
-<!-- ── HEADER ────────────────────────────────────────────── -->
 <div class="header">
   <span class="logo"><span>Q</span> CLAUDE + QUANT</span>
-  <span class="tag tag-orange">RANDOM</span>
-  <span class="tag tag-orange">KELLY</span>
-  <span class="tag tag-orange">SELF-LEARN</span>
-  <span class="tag tag-blue">SENTIMENT EXPORT</span>
+  <span class="tag tag-orange" id="tagRandom" onclick="setMode('RANDOM')">RANDOM</span>
+  <span class="tag tag-orange" id="tagKelly" onclick="setMode('KELLY')">KELLY</span>
+  <span class="tag tag-orange tag-active" id="tagLearn" onclick="setMode('SELF-LEARN')">SELF-LEARN</span>
+  <span class="tag tag-blue" id="exportBtn" onclick="exportData()" style="cursor:pointer">SENTIMENT EXPORT</span>
   <span class="hdr-clock" id="clock">14:33:13</span>
 </div>
 
 <div class="ticker-bar">
-  <span>AF GLOBAL · TOP 5 RISK</span>
+  <span>AF GLOBAL &middot; TOP 5 RISK</span>
   <span>RESTING <b class="hi">9.0R</b> TRADERS</span>
   <span>AF NAMES / 24P</span>
   <span>OUT-PERFORMING AF BY <b class="hi">$514K</b></span>
   <span><span class="live-dot"></span>LIVE</span>
 </div>
 
-<!-- ── TOP ROW ────────────────────────────────────────────── -->
 <div class="top-row">
-
-  <!-- LEFT: Portfolio -->
   <div class="portfolio">
-    <div class="channel">@ehami_quant · CRYPTO</div>
+    <div class="channel">@ehami_quant &middot; CRYPTO</div>
     <div class="pf-value" id="pfValue">$524,770</div>
     <div class="pf-pnl">ALL-TIME P&amp;L &nbsp;<span class="g" id="pnlVal">+28,645 &nbsp;+45.64%</span></div>
     <div class="stats-grid">
-      <div class="stat-box">
-        <div class="stat-label">TRADES</div>
-        <div class="stat-val" id="trades">118,808</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-label">WIN RATE</div>
-        <div class="stat-val g">61.0%</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-label">RATIO</div>
-        <div class="stat-val">3.92</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-label">AVG WIN</div>
-        <div class="stat-val g">$4.24</div>
-      </div>
+      <div class="stat-box"><div class="stat-label">TRADES</div><div class="stat-val" id="trades">118,808</div></div>
+      <div class="stat-box"><div class="stat-label">WIN RATE</div><div class="stat-val g" id="winRate">61.0%</div></div>
+      <div class="stat-box"><div class="stat-label">RATIO</div><div class="stat-val">3.92</div></div>
+      <div class="stat-box"><div class="stat-label">AVG WIN</div><div class="stat-val g">$4.24</div></div>
     </div>
     <div class="liq-risk">LIQ RISK &nbsp;<span class="r">1.0</span>/13</div>
   </div>
-
-  <!-- RIGHT: Chart -->
   <div class="chart-panel">
     <div class="biggest-win">
-      <span>BIGGEST WIN <span class="g">$77,835</span></span>
+      <span>BIGGEST WIN <span class="g" id="biggestWin">$77,835</span></span>
       <span class="mult-box">X<span id="mult">86</span></span>
     </div>
-    <div class="pair-label">BTC / USD · D-1H&nbsp;<span id="btcPrice">▲ $77,048</span></div>
+    <div class="pair-label">BTC / USD &middot; D-1H&nbsp;<span id="btcPrice">&uarr; $77,048</span></div>
     <canvas id="candleChart" height="90"></canvas>
     <div class="chart-footer">
       <div class="cf-box"><div class="lbl">ALPHA</div><div class="val g">447</div></div>
@@ -363,126 +189,208 @@ body {
       <div class="cf-box"><div class="lbl">CALMAR</div><div class="val g">5.51</div></div>
     </div>
   </div>
-
 </div>
 
-<!-- ── EXECUTION CYCLE ─────────────────────────────────── -->
 <div class="section">
   <div class="section-title">
     <span>EXECUTION CYCLE &nbsp;#2 A01</span>
     <span>FILL &nbsp;<b style="color:var(--yellow)">1.0/13</b></span>
   </div>
   <div class="exec-steps">
-    <div class="step done">SCAN</div>
-    <div class="step done">DETECT</div>
-    <div class="step done">VALIDATE</div>
-    <div class="step done">SIZE</div>
-    <div class="step active" id="fillStep">FILL</div>
-    <div class="step">SETTLE</div>
+    <div class="step done"   id="stepScan"     onclick="showStepInfo('SCAN')">SCAN</div>
+    <div class="step done"   id="stepDetect"   onclick="showStepInfo('DETECT')">DETECT</div>
+    <div class="step done"   id="stepValidate" onclick="showStepInfo('VALIDATE')">VALIDATE</div>
+    <div class="step done"   id="stepSize"     onclick="showStepInfo('SIZE')">SIZE</div>
+    <div class="step active" id="stepFill"     onclick="showStepInfo('FILL')">FILL</div>
+    <div class="step"        id="stepSettle"   onclick="showStepInfo('SETTLE')">SETTLE</div>
   </div>
   <div class="exec-bar"><div class="exec-bar-fill" id="execBar" style="width:80%"></div></div>
 </div>
 
-<!-- ── STRATEGY DECISION TREE ────────────────────────────── -->
 <div class="tree-section">
   <div class="section-title">
-    <span>STRATEGY DECISION TREE — EVERY TRADE TRACED</span>
+    <span>STRATEGY DECISION TREE &mdash; EVERY TRADE TRACED</span>
     <span class="inflight-badge">IN-FLIGHT <span id="inflight">11</span></span>
   </div>
-  <svg class="tree-svg" viewBox="0 0 560 160" id="treeSvg">
-    <!-- Edges -->
+  <svg class="tree-svg" viewBox="0 0 560 160">
     <g stroke="#1a3050" stroke-width="1" fill="none">
-      <!-- Root to L/R children -->
       <line x1="280" y1="35" x2="140" y2="75"/>
       <line x1="280" y1="35" x2="420" y2="75"/>
-      <!-- L children -->
       <line x1="140" y1="95" x2="70"  y2="130"/>
       <line x1="140" y1="95" x2="210" y2="130"/>
-      <!-- R children -->
       <line x1="420" y1="95" x2="350" y2="130"/>
       <line x1="420" y1="95" x2="490" y2="130"/>
     </g>
-
-    <!-- Root node -->
     <rect x="230" y="10" width="100" height="26" rx="3" fill="#0e2540" stroke="#1e90ff" stroke-width="1"/>
     <text x="280" y="21" text-anchor="middle" fill="#1e90ff" font-size="8" font-family="Courier New">SIGNAL GATE</text>
     <text x="280" y="32" text-anchor="middle" fill="#00d97e" font-size="9" font-weight="bold" font-family="Courier New" id="rootPct">91.7%</text>
-
-    <!-- Left mid -->
     <rect x="95" y="72" width="90" height="24" rx="3" fill="#0e2540" stroke="#122540" stroke-width="1"/>
     <text x="140" y="82" text-anchor="middle" fill="#a8bdd0" font-size="7" font-family="Courier New">LONG SETUP</text>
     <text x="140" y="92" text-anchor="middle" fill="#00d97e" font-size="9" font-weight="bold" font-family="Courier New">93.4%</text>
-
-    <!-- Right mid -->
     <rect x="375" y="72" width="90" height="24" rx="3" fill="#0e2540" stroke="#122540" stroke-width="1"/>
     <text x="420" y="82" text-anchor="middle" fill="#a8bdd0" font-size="7" font-family="Courier New">SHORT SETUP</text>
     <text x="420" y="92" text-anchor="middle" fill="#ff8c00" font-size="9" font-weight="bold" font-family="Courier New">78.2%</text>
-
-    <!-- Leaf nodes -->
     <rect x="30"  y="128" width="80" height="24" rx="3" fill="#082010" stroke="#00d97e" stroke-width="1"/>
     <text x="70"  y="138" text-anchor="middle" fill="#00d97e" font-size="7" font-family="Courier New">ENTER LONG</text>
     <text x="70"  y="148" text-anchor="middle" fill="#00d97e" font-size="9" font-weight="bold" font-family="Courier New" id="leaf1">+$3,840</text>
-
     <rect x="165" y="128" width="80" height="24" rx="3" fill="#0a0808" stroke="#5a7a90" stroke-width="1"/>
     <text x="205" y="138" text-anchor="middle" fill="#5a7a90" font-size="7" font-family="Courier New">HOLD</text>
     <text x="205" y="148" text-anchor="middle" fill="#5a7a90" font-size="9" font-weight="bold" font-family="Courier New">+$217</text>
-
     <rect x="310" y="128" width="80" height="24" rx="3" fill="#200808" stroke="#ff3a3a" stroke-width="1"/>
     <text x="350" y="138" text-anchor="middle" fill="#ff3a3a" font-size="7" font-family="Courier New">ENTER SHORT</text>
     <text x="350" y="148" text-anchor="middle" fill="#ff3a3a" font-size="9" font-weight="bold" font-family="Courier New" id="leaf3">-$127</text>
-
     <rect x="450" y="128" width="80" height="24" rx="3" fill="#0a0808" stroke="#5a7a90" stroke-width="1"/>
     <text x="490" y="138" text-anchor="middle" fill="#5a7a90" font-size="7" font-family="Courier New">SKIP</text>
     <text x="490" y="148" text-anchor="middle" fill="#5a7a90" font-size="9" font-weight="bold" font-family="Courier New">$0</text>
-
-    <!-- Side label -->
     <text x="555" y="145" text-anchor="end" fill="#5a7a90" font-size="7" font-family="Courier New" id="totalSide">TOTAL: +$1,447M</text>
   </svg>
 </div>
 
-<!-- ── ROBUSTNESS MATRIX ─────────────────────────────────── -->
 <div class="matrix-section">
   <div class="matrix-header">
-    <span class="section-title" style="margin:0">ROBUSTNESS MATRIX — 7 ASSETS &amp; 6 TF</span>
+    <span class="section-title" style="margin:0">ROBUSTNESS MATRIX &mdash; 7 ASSETS &amp; 6 TF</span>
     <span class="version-badge">VERSION <span id="matVer">01</span>/100</span>
   </div>
-  <table class="matrix-table" id="matrixTable">
-    <thead>
-      <tr>
-        <th>TF / ASSET</th>
-        <th>BTC</th><th>ETH</th><th>SOL</th><th>BNB</th><th>XRP</th><th>ADA</th><th>DOGE</th>
-      </tr>
-    </thead>
+  <table class="matrix-table">
+    <thead><tr><th>TF / ASSET</th><th>BTC</th><th>ETH</th><th>SOL</th><th>BNB</th><th>XRP</th><th>ADA</th><th>DOGE</th></tr></thead>
     <tbody id="matrixBody"></tbody>
   </table>
 </div>
 
-<!-- ── MONTE CARLO ───────────────────────────────────────────── -->
 <div class="mc-section">
   <div class="section-title" style="margin-bottom:6px">
-    <span>MONTE CARLO SIGNIFICANCE — T_10Y SIMULATED RATES — 92</span>
+    <span>MONTE CARLO SIGNIFICANCE &mdash; T_10Y SIMULATED RATES &mdash; 92</span>
     <span style="color:var(--green)">p &lt; 0.001</span>
   </div>
   <div class="mc-grid">
-    <div class="mc-chart-wrap">
-      <canvas id="mcChart" height="90"></canvas>
-    </div>
+    <div class="mc-chart-wrap"><canvas id="mcChart" height="90"></canvas></div>
     <div class="mc-scale">
       <div class="mc-pos">+8.35</div>
       <div class="mc-pos">+3.25</div>
-      <div style="color:var(--dim)">&#177;0.00</div>
+      <div style="color:var(--dim)">&plusmn;0.00</div>
       <div class="mc-neg">-4.00</div>
       <div class="mc-neg">-7.15</div>
     </div>
   </div>
 </div>
 
+<div class="toast" id="toast"></div>
+<div class="step-tooltip" id="stepTooltip"></div>
+
 <script>
 const BOT_API = 'http://127.0.0.1:5000/data';
 let botConnected = false;
 let pfBase = 524770, btcBase = 77048;
+let cachedBotData = null;
+let currentMode = 'SELF-LEARN';
 
-// ── Clock ──────────────────────────────────────────────
+// Toast
+function toast(msg, color) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.borderColor = color || 'var(--green)';
+  el.style.color = color || 'var(--green)';
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+// SENTIMENT EXPORT
+function exportData() {
+  const d = cachedBotData;
+  const now = new Date().toISOString();
+  let csv = 'CLAUDE+QUANT SENTIMENT EXPORT\n';
+  csv += 'Timestamp,' + now + '\n\n';
+  if (d && d.account) {
+    csv += 'ACCOUNT\nBalance,' + d.account.balance + '\nEquity,' + d.account.equity +
+           '\nOpen P&L,' + d.account.profit + '\nCurrency,' + d.account.currency +
+           '\nLeverage,' + d.account.leverage + '\nServer,' + d.account.server + '\n\n';
+  }
+  if (d && d.stats) {
+    csv += 'PERFORMANCE\nTotal Trades,' + d.stats.trades_total + '\nWins,' + d.stats.trades_win +
+           '\nWin Rate,' + d.stats.win_rate + '%\nTotal Profit,' + d.stats.total_profit +
+           '\nBiggest Win,' + d.stats.biggest_win + '\nBiggest Loss,' + d.stats.biggest_loss + '\n\n';
+  }
+  if (d && d.indicators) {
+    csv += 'INDICATORS\nEMA20,' + d.indicators.ema20 + '\nEMA50,' + d.indicators.ema50 +
+           '\nEMA200,' + d.indicators.ema200 + '\nRSI,' + d.indicators.rsi +
+           '\nMACD,' + d.indicators.macd + '\nADX,' + d.indicators.adx +
+           '\nATR,' + d.indicators.atr + '\nStructure,' + d.indicators.structure +
+           '\nCandle Pattern,' + (d.indicators.candle_pattern || 'none') + '\n\n';
+  }
+  if (d && d.price) {
+    csv += 'PRICE\nBid,' + d.price.bid + '\nAsk,' + d.price.ask + '\nSpread,' + d.price.spread + 'p\n\n';
+  }
+  if (d && d.last_signal) {
+    csv += 'LAST SIGNAL\nSignal,' + (d.last_signal.signal || 'NONE') +
+           '\nRSI,' + d.last_signal.rsi + '\nTime,' + d.last_signal.time + '\n';
+  }
+  if (!d) {
+    csv += 'NOTE: Bot offline - simulation only\nPortfolio,' + document.getElementById('pfValue').textContent + '\n';
+  }
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'claude-quant-' + now.slice(0,10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+  const btn = document.getElementById('exportBtn');
+  btn.textContent = 'EXPORTED ✓';
+  setTimeout(() => btn.textContent = 'SENTIMENT EXPORT', 2000);
+  toast('Export: claude-quant-' + now.slice(0,10) + '.csv');
+}
+
+// MODE TOGGLE
+const modeInfo = {
+  'RANDOM':     'RANDOM — Zufaelliges Lot-Sizing (nur fuer Tests)',
+  'KELLY':      'KELLY — Optimale Lots basierend auf Win-Rate & Risiko',
+  'SELF-LEARN': 'SELF-LEARN — ATR x 1.5 SL, 1% Risiko (aktiv)',
+};
+function setMode(mode) {
+  currentMode = mode;
+  ['RANDOM','KELLY','SELF-LEARN'].forEach(m => {
+    const ids = { 'RANDOM':'tagRandom','KELLY':'tagKelly','SELF-LEARN':'tagLearn' };
+    const el = document.getElementById(ids[m]);
+    if (el) el.classList.toggle('tag-active', m === mode);
+  });
+  toast(modeInfo[mode], mode === 'SELF-LEARN' ? 'var(--green)' : 'var(--orange)');
+}
+
+// STEP INFO
+const stepInfo = {
+  'SCAN':     'SCAN — Bot laedt 250 M15-Kerzen von MT5',
+  'DETECT':   'DETECT — EMA 20/50/200 + MACD werden berechnet',
+  'VALIDATE': 'VALIDATE — ADX > 25, RSI 40-65, Market Structure',
+  'SIZE':     'SIZE — ATR x 1.5 SL, ATR x 3.0 TP, 1% Lot-Kalkulation',
+  'FILL':     'FILL — Order wird an MT5 gesendet (BUY oder SELL)',
+  'SETTLE':   'SETTLE — Position laeuft bis Stop-Loss oder Take-Profit',
+};
+let tooltipTimer;
+function showStepInfo(step) {
+  const el = document.getElementById('stepTooltip');
+  el.textContent = stepInfo[step] || step;
+  el.classList.add('show');
+  clearTimeout(tooltipTimer);
+  tooltipTimer = setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+// EXEC CYCLE live update
+function updateExecCycle(d) {
+  const ids = ['stepScan','stepDetect','stepValidate','stepSize','stepFill','stepSettle'];
+  const hasPos = (d.positions || []).length > 0;
+  const sig    = d.last_signal && d.last_signal.signal;
+  let active = hasPos ? 5 : sig ? 4 : 1;
+  ids.forEach((id, i) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.className = 'step';
+    if (i < active)       el.classList.add('done');
+    else if (i === active) el.classList.add('active');
+  });
+}
+
+// Clock
 function updateClock() {
   const d = new Date();
   document.getElementById('clock').textContent =
@@ -490,331 +398,167 @@ function updateClock() {
     String(d.getMinutes()).padStart(2,'0') + ':' +
     String(d.getSeconds()).padStart(2,'0');
 }
-setInterval(updateClock, 1000);
-updateClock();
+setInterval(updateClock, 1000); updateClock();
 
-// ── Fetch real data from bot ─────────────────────────
+// Bot data
 async function fetchBotData() {
   try {
     const res = await fetch(BOT_API, { signal: AbortSignal.timeout(2000) });
-    if (!res.ok) throw new Error('bad response');
+    if (!res.ok) throw new Error();
     const d = await res.json();
     botConnected = true;
     applyRealData(d);
-  } catch {
-    botConnected = false;
-  }
+  } catch { botConnected = false; }
 }
 
 function applyRealData(d) {
-  const acc = d.account || {};
-  const sig = d.last_signal || {};
-  const st  = d.stats || {};
-  const pr  = d.price || {};
-
-  // Header status
-  document.querySelector('.channel').textContent =
-    (acc.name || 'DEMO') + ' · ' + (acc.server || 'MT5');
-
-  // Portfolio value
+  cachedBotData = d;
+  updateExecCycle(d);
+  const acc = d.account || {}, sig = d.last_signal || {}, st = d.stats || {}, pr = d.price || {};
+  document.querySelector('.channel').textContent = (acc.name || 'DEMO') + ' · ' + (acc.server || 'MT5');
   if (acc.equity) {
-    const eq = acc.equity;
     document.getElementById('pfValue').textContent =
-      acc.currency + ' ' + eq.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
-    pfBase = eq;
+      acc.currency + ' ' + acc.equity.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+    pfBase = acc.equity;
   }
-
-  // PnL
   if (acc.profit !== undefined) {
-    const pnl = acc.profit;
-    const sign = pnl >= 0 ? '+' : '';
-    document.getElementById('pnlVal').textContent =
-      'OPEN P&L  ' + sign + pnl.toFixed(2) + ' ' + (acc.currency || 'USD');
+    const pnl = acc.profit, sign = pnl >= 0 ? '+' : '';
+    document.getElementById('pnlVal').textContent = 'OPEN P&L  ' + sign + pnl.toFixed(2) + ' ' + (acc.currency||'USD');
     document.getElementById('pnlVal').style.color = pnl >= 0 ? 'var(--green)' : 'var(--red)';
   }
-
-  // Stats
-  if (st.trades_total !== undefined) {
-    document.getElementById('trades').textContent = st.trades_total.toLocaleString();
-  }
-
-  // Price label
+  if (st.trades_total !== undefined) document.getElementById('trades').textContent = st.trades_total.toLocaleString();
+  if (st.win_rate     !== undefined) document.getElementById('winRate').textContent = st.win_rate + '%';
+  if (st.biggest_win  > 0)          document.getElementById('biggestWin').textContent = '$' + st.biggest_win.toFixed(2);
   if (pr.bid) {
-    document.getElementById('btcPrice').textContent =
-      d.symbol + '  ' + pr.bid + ' / ' + pr.ask +
-      '  spread:' + pr.spread + 'p';
-    document.querySelector('.pair-label').firstChild.textContent =
-      d.symbol + ' · M15  ';
+    document.getElementById('btcPrice').textContent = d.symbol + '  ' + pr.bid + ' / ' + pr.ask + '  spread:' + pr.spread + 'p';
+    document.querySelector('.pair-label').firstChild.textContent = d.symbol + ' · M15  ';
   }
-
-  // Signal badge
   if (sig.signal) {
-    const badge = document.getElementById('fillStep');
+    const badge = document.getElementById('stepFill');
     badge.textContent = sig.signal;
     badge.style.background = sig.signal === 'BUY' ? 'var(--green)' : 'var(--red)';
     badge.style.color = '#000';
   }
-
-  // Biggest win
-  if (st.biggest_win !== undefined && st.biggest_win > 0) {
-    document.querySelector('.biggest-win .g').textContent =
-      '$' + st.biggest_win.toFixed(2);
-  }
-
-  // Win rate
-  if (st.win_rate !== undefined) {
-    document.querySelectorAll('.stat-val.g')[0].textContent = st.win_rate + '%';
-  }
-
-  // Live/connected indicator
   document.querySelector('.live-dot').style.background = d.connected ? 'var(--green)' : 'var(--red)';
 }
 
-setInterval(fetchBotData, 3000);
-fetchBotData();
+setInterval(fetchBotData, 3000); fetchBotData();
 
-// ── Simulation fallback (when bot not running) ──────────────────
+// Simulation fallbacks
 function updatePortfolio() {
   if (botConnected) return;
   pfBase += (Math.random() - 0.46) * 80;
   const val = Math.round(pfBase);
   document.getElementById('pfValue').textContent = '$' + val.toLocaleString();
-  const pnl = val - 360000;
-  const pct = ((pnl/360000)*100).toFixed(2);
-  const sign = pnl >= 0 ? '+' : '';
-  document.getElementById('pnlVal').textContent =
-    sign + pnl.toLocaleString() + '   ' + sign + pct + '%';
+  const pnl = val - 360000, pct = ((pnl/360000)*100).toFixed(2), sign = pnl >= 0 ? '+' : '';
+  document.getElementById('pnlVal').textContent = sign + pnl.toLocaleString() + '   ' + sign + pct + '%';
 }
 setInterval(updatePortfolio, 800);
 
-// ── Price simulation fallback ────────────────────────
 function updateBTC() {
   if (botConnected) return;
   btcBase += (Math.random() - 0.48) * 50;
-  document.getElementById('btcPrice').textContent =
-    '▲ $' + Math.round(btcBase).toLocaleString();
+  document.getElementById('btcPrice').textContent = '▲ $' + Math.round(btcBase).toLocaleString();
 }
 setInterval(updateBTC, 1500);
 
-// ── Multiplier ─────────────────────────────────────────
-const mults = [86, 111, 92, 104, 78];
-let mi = 0;
-setInterval(() => {
-  mi = (mi+1) % mults.length;
-  document.getElementById('mult').textContent = mults[mi];
-}, 3000);
+const mults = [86,111,92,104,78]; let mi = 0;
+setInterval(() => { mi=(mi+1)%mults.length; document.getElementById('mult').textContent=mults[mi]; }, 3000);
 
-// ── In-flight counter ────────────────────────────────
 let ifl = 11;
-setInterval(() => {
-  ifl = 8 + Math.floor(Math.random() * 6);
-  document.getElementById('inflight').textContent = ifl;
-}, 2500);
+setInterval(() => { ifl=8+Math.floor(Math.random()*6); document.getElementById('inflight').textContent=ifl; }, 2500);
 
-// ── Exec bar animation ───────────────────────────────
-let execPct = 80;
-let execDir = 1;
+let execPct=80, execDir=1;
 setInterval(() => {
-  execPct += execDir * (2 + Math.random() * 3);
-  if (execPct >= 100) { execPct = 100; execDir = -1; }
-  if (execPct <= 5)   { execPct = 5;   execDir = 1; }
-  document.getElementById('execBar').style.width = execPct + '%';
+  execPct += execDir*(2+Math.random()*3);
+  if(execPct>=100){execPct=100;execDir=-1;} if(execPct<=5){execPct=5;execDir=1;}
+  document.getElementById('execBar').style.width = execPct+'%';
 }, 1200);
 
-// ── Decision tree live values ────────────────────────
 setInterval(() => {
-  const pct = (88 + Math.random() * 8).toFixed(1);
-  document.getElementById('rootPct').textContent = pct + '%';
-  const earn = 3000 + Math.round(Math.random() * 2000);
-  document.getElementById('leaf1').textContent = '+$' + earn.toLocaleString();
-  const loss = Math.round(50 + Math.random() * 200);
-  document.getElementById('leaf3').textContent = '-$' + loss;
-  const total = (1.2 + Math.random() * 0.5).toFixed(3);
-  document.getElementById('totalSide').textContent = 'TOTAL: +$' + total + 'B';
+  document.getElementById('rootPct').textContent = (88+Math.random()*8).toFixed(1)+'%';
+  document.getElementById('leaf1').textContent = '+$'+(3000+Math.round(Math.random()*2000)).toLocaleString();
+  document.getElementById('leaf3').textContent = '-$'+Math.round(50+Math.random()*200);
+  document.getElementById('totalSide').textContent = 'TOTAL: +$'+(1.2+Math.random()*.5).toFixed(3)+'B';
 }, 2000);
 
-// ── Candlestick chart ────────────────────────────────
+// Candlestick chart
 (function() {
   const canvas = document.getElementById('candleChart');
   const ctx = canvas.getContext('2d');
-
   const candles = [];
   let price = 77000;
-  for (let i = 0; i < 30; i++) {
-    const open = price;
-    const move = (Math.random() - 0.48) * 600;
-    const close = open + move;
-    const high = Math.max(open, close) + Math.random() * 200;
-    const low  = Math.min(open, close) - Math.random() * 200;
-    candles.push({ open, close, high, low });
-    price = close;
+  for (let i=0;i<30;i++) {
+    const open=price, move=(Math.random()-.48)*600, close=open+move;
+    candles.push({open,close,high:Math.max(open,close)+Math.random()*200,low:Math.min(open,close)-Math.random()*200});
+    price=close;
   }
-
   function drawCandles() {
-    const W = canvas.offsetWidth;
-    const H = canvas.offsetHeight;
-    canvas.width  = W;
-    canvas.height = H;
-
-    const prices = candles.flatMap(c => [c.high, c.low]);
-    const mn = Math.min(...prices);
-    const mx = Math.max(...prices);
-    const range = mx - mn || 1;
-
-    const pad = 4;
-    const cw  = (W - pad*2) / candles.length;
-
-    const toY = v => H - pad - ((v - mn) / range) * (H - pad*2);
-
-    // Background grid
-    ctx.strokeStyle = '#0d1e30';
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= 4; i++) {
-      const y = pad + (i/4) * (H - pad*2);
-      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
-    }
-
-    candles.forEach((c, i) => {
-      const x = pad + i * cw + cw * 0.1;
-      const w = cw * 0.8;
-      const isGreen = c.close >= c.open;
-      const col = isGreen ? '#00d97e' : '#ff3a3a';
-
-      // Wick
-      ctx.strokeStyle = col;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(x + w/2, toY(c.high));
-      ctx.lineTo(x + w/2, toY(c.low));
-      ctx.stroke();
-
-      // Body
-      ctx.fillStyle = col;
-      const y1 = toY(Math.max(c.open, c.close));
-      const y2 = toY(Math.min(c.open, c.close));
-      ctx.fillRect(x, y1, w, Math.max(y2-y1, 1));
+    const W=canvas.offsetWidth, H=canvas.offsetHeight;
+    canvas.width=W; canvas.height=H;
+    const prices=candles.flatMap(c=>[c.high,c.low]);
+    const mn=Math.min(...prices), mx=Math.max(...prices), range=mx-mn||1;
+    const pad=4, cw=(W-pad*2)/candles.length;
+    const toY=v=>H-pad-((v-mn)/range)*(H-pad*2);
+    ctx.strokeStyle='#0d1e30'; ctx.lineWidth=1;
+    for(let i=0;i<=4;i++){const y=pad+(i/4)*(H-pad*2);ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+    candles.forEach((c,i) => {
+      const x=pad+i*cw+cw*.1, w=cw*.8, col=c.close>=c.open?'#00d97e':'#ff3a3a';
+      ctx.strokeStyle=col; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(x+w/2,toY(c.high)); ctx.lineTo(x+w/2,toY(c.low)); ctx.stroke();
+      ctx.fillStyle=col;
+      const y1=toY(Math.max(c.open,c.close)), y2=toY(Math.min(c.open,c.close));
+      ctx.fillRect(x,y1,w,Math.max(y2-y1,1));
     });
-
-    // Current price line
-    const last = candles[candles.length-1].close;
-    ctx.strokeStyle = '#ffd200';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([3,3]);
-    ctx.beginPath();
-    ctx.moveTo(0, toY(last));
-    ctx.lineTo(W, toY(last));
-    ctx.stroke();
+    const last=candles[candles.length-1].close;
+    ctx.strokeStyle='#ffd200'; ctx.lineWidth=1; ctx.setLineDash([3,3]);
+    ctx.beginPath(); ctx.moveTo(0,toY(last)); ctx.lineTo(W,toY(last)); ctx.stroke();
     ctx.setLineDash([]);
   }
-
   drawCandles();
-
-  // Add new candle periodically
   setInterval(() => {
-    const last = candles[candles.length-1].close;
-    const open = last;
-    const move = (Math.random() - 0.48) * 400;
-    const close = open + move;
-    candles.push({
-      open, close,
-      high: Math.max(open,close) + Math.random()*150,
-      low:  Math.min(open,close) - Math.random()*150
-    });
-    if (candles.length > 40) candles.shift();
+    const last=candles[candles.length-1].close, open=last, move=(Math.random()-.48)*400, close=open+move;
+    candles.push({open,close,high:Math.max(open,close)+Math.random()*150,low:Math.min(open,close)-Math.random()*150});
+    if(candles.length>40) candles.shift();
     drawCandles();
   }, 2000);
-
   window.addEventListener('resize', drawCandles);
 })();
 
-// ── Robustness Matrix ───────────────────────────────
+// Robustness Matrix
 (function() {
-  const tfs     = ['1M','5M','15M','1H','4H','1D'];
-  const assets  = ['BTC','ETH','SOL','BNB','XRP','ADA','DOGE'];
-  const body    = document.getElementById('matrixBody');
-
+  const tfs=['1M','5M','15M','1H','4H','1D'], assets=['BTC','ETH','SOL','BNB','XRP','ADA','DOGE'];
+  const body=document.getElementById('matrixBody');
   function cellColor(v) {
-    if (v >= 3)   return ['#063a18','#00d97e'];
-    if (v >= 1)   return ['#0a2a10','#29d97e'];
-    if (v >= 0)   return ['#0d1e0d','#4a8060'];
-    if (v >= -1)  return ['#2a0d0d','#cc4444'];
-    if (v >= -3)  return ['#3a0808','#ff3a3a'];
-    return               ['#4a0505','#ff1a1a'];
+    if(v>=3) return['#063a18','#00d97e']; if(v>=1) return['#0a2a10','#29d97e'];
+    if(v>=0) return['#0d1e0d','#4a8060']; if(v>=-1) return['#2a0d0d','#cc4444'];
+    if(v>=-3) return['#3a0808','#ff3a3a']; return['#4a0505','#ff1a1a'];
   }
-
   function buildMatrix() {
-    body.innerHTML = '';
+    body.innerHTML='';
     tfs.forEach(tf => {
-      const tr = document.createElement('tr');
-      const th = document.createElement('td');
-      th.className = 'row-label';
-      th.textContent = tf;
-      tr.appendChild(th);
+      const tr=document.createElement('tr');
+      const th=document.createElement('td'); th.className='row-label'; th.textContent=tf; tr.appendChild(th);
       assets.forEach(() => {
-        const v = (Math.random()*10 - 3.5).toFixed(2);
-        const td = document.createElement('td');
-        const [bg, fg] = cellColor(+v);
-        td.style.background = bg;
-        td.style.color = fg;
-        td.textContent = (+v > 0 ? '+' : '') + v;
-        tr.appendChild(td);
+        const v=(Math.random()*10-3.5).toFixed(2), td=document.createElement('td');
+        const [bg,fg]=cellColor(+v); td.style.background=bg; td.style.color=fg;
+        td.textContent=(+v>0?'+':'')+v; tr.appendChild(td);
       });
       body.appendChild(tr);
     });
   }
-
-  buildMatrix();
-  setInterval(buildMatrix, 3000);
+  buildMatrix(); setInterval(buildMatrix, 3000);
 })();
 
-// ── Monte Carlo Chart ────────────────────────────────
+// Monte Carlo
 (function() {
-  const labels = [];
-  const data   = [];
-  // Bell curve shape
-  for (let i = -4; i <= 4; i += 0.25) {
-    labels.push(i.toFixed(2));
-    const y = 92 * Math.exp(-0.5 * i * i) + Math.random() * 3;
-    data.push(y);
-  }
-
-  const gradient = document.getElementById('mcChart')
-    .getContext('2d').createLinearGradient(0,0,0,90);
-  gradient.addColorStop(0, 'rgba(30,144,255,0.9)');
-  gradient.addColorStop(1, 'rgba(30,144,255,0.2)');
-
-  new Chart(document.getElementById('mcChart'), {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [{
-        data,
-        backgroundColor: data.map((_, i) => {
-          const x = -4 + i * 0.25;
-          if (x > 2)   return 'rgba(0,217,126,0.85)';
-          if (x < -2)  return 'rgba(255,58,58,0.7)';
-          return 'rgba(30,144,255,0.75)';
-        }),
-        borderWidth: 0,
-        borderRadius: 1,
-      }]
-    },
-    options: {
-      responsive: true,
-      animation: false,
-      plugins: { legend: { display: false }, tooltip: { enabled: false } },
-      scales: {
-        x: {
-          display: true,
-          ticks: { color: '#5a7a90', font: { size: 7 }, maxTicksLimit: 5 },
-          grid: { color: '#0d1e30', lineWidth: 1 }
-        },
-        y: {
-          display: false,
-          grid: { display: false }
-        }
-      }
-    }
+  const labels=[], data=[];
+  for(let i=-4;i<=4;i+=0.25){labels.push(i.toFixed(2));data.push(92*Math.exp(-.5*i*i)+Math.random()*3);}
+  new Chart(document.getElementById('mcChart'),{
+    type:'bar',
+    data:{labels,datasets:[{data,backgroundColor:data.map((_,i)=>{const x=-4+i*.25;return x>2?'rgba(0,217,126,.85)':x<-2?'rgba(255,58,58,.7)':'rgba(30,144,255,.75)';}),borderWidth:0,borderRadius:1}]},
+    options:{responsive:true,animation:false,plugins:{legend:{display:false},tooltip:{enabled:false}},
+      scales:{x:{display:true,ticks:{color:'#5a7a90',font:{size:7},maxTicksLimit:5},grid:{color:'#0d1e30'}},y:{display:false}}}
   });
 })();
 </script>
