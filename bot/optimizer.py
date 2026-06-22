@@ -42,6 +42,9 @@ SEARCH_SPACE = {
     "sl_mult":      [1.0, 1.2, 1.5, 1.8, 2.0, 2.5],
     "tp_mult":      [2.0, 2.5, 3.0, 3.5, 4.0, 5.0],
     "need_pattern": [True, False],
+    # Elite-Parameter: Confluence Score Schwelle
+    # 0 = klassische AND-Logik, 6-10 = Confluence-System mit Elite-Indikatoren
+    "min_score":    [0, 6, 7, 8, 9, 10],
 }
 
 # Mindestanforderungen (ungueltige Kombinationen ausfiltern)
@@ -107,7 +110,7 @@ def random_trial(seed=None):
     if seed is not None:
         random.seed(seed)
     strat = {
-        "name":        "Trial",
+        "name":         "Trial",
         "adx_min":      random.choice(SEARCH_SPACE["adx_min"]),
         "rsi_low_b":    random.choice(SEARCH_SPACE["rsi_low_b"]),
         "rsi_high_b":   random.choice(SEARCH_SPACE["rsi_high_b"]),
@@ -116,6 +119,7 @@ def random_trial(seed=None):
         "sl_mult":      random.choice(SEARCH_SPACE["sl_mult"]),
         "tp_mult":      random.choice(SEARCH_SPACE["tp_mult"]),
         "need_pattern": random.choice(SEARCH_SPACE["need_pattern"]),
+        "min_score":    random.choice(SEARCH_SPACE["min_score"]),
     }
     # TP muss groesser als SL sein (mind. RR 1.5)
     if strat["tp_mult"] < strat["sl_mult"] * 1.5:
@@ -135,20 +139,20 @@ def print_top(results, n=10):
     print(f"  TOP {n} STRATEGIEN  |  {SYMBOL}  |  Auto-Optimizer Ergebnisse")
     print("=" * 80)
     print(f"  {'#':>2}  {'ADX':>4}  {'RSI-B':>9}  {'RSI-S':>9}  "
-          f"{'SL':>4}  {'TP':>4}  {'PAT':>4}  "
+          f"{'SL':>4}  {'TP':>4}  {'SC':>3}  "
           f"{'TRADES':>6}  {'WR':>6}  {'RETURN':>8}  {'SCORE':>7}")
-    print("  " + "-" * 78)
+    print("  " + "-" * 80)
 
     for rank, r in enumerate(results[:n], 1):
         s = r["strat"]
         m = r["metrics"]
-        pat = "Ja" if s["need_pattern"] else "Nein"
         rsi_b = f"{s['rsi_low_b']}-{s['rsi_high_b']}"
         rsi_s = f"{s['rsi_low_s']}-{s['rsi_high_s']}"
+        sc    = s.get("min_score", 0)
         ret_sign = "+" if m["return_pct"] >= 0 else ""
         print(
             f"  {rank:>2}  {s['adx_min']:>4}  {rsi_b:>9}  {rsi_s:>9}  "
-            f"{s['sl_mult']:>4.1f}  {s['tp_mult']:>4.1f}  {pat:>4}  "
+            f"{s['sl_mult']:>4.1f}  {s['tp_mult']:>4.1f}  {sc:>3}  "
             f"{m['total_trades']:>6}  {m['win_rate']:>5.1f}%  "
             f"{ret_sign}{m['return_pct']:>7.1f}%  {r['score']:>7.4f}"
         )
@@ -164,6 +168,7 @@ def print_top(results, n=10):
         print(f"    RSI Sell       : {s['rsi_low_s']} - {s['rsi_high_s']}")
         print(f"    SL / TP        : ATR x {s['sl_mult']} / ATR x {s['tp_mult']}")
         print(f"    Pattern Pflicht: {'Ja' if s['need_pattern'] else 'Nein'}")
+        print(f"    Confluence Min : {s.get('min_score', 0)} Punkte ({'Elite' if s.get('min_score',0)>0 else 'Klassisch'})")
         print(f"    Win Rate       : {m['win_rate']}%")
         print(f"    Return         : +{m['return_pct']}%")
         print(f"    Max Drawdown   : {m['max_drawdown']}%")
@@ -186,6 +191,7 @@ def apply_best_params(best_strat):
         "sl_mult":       best_strat["sl_mult"],
         "tp_mult":       best_strat["tp_mult"],
         "need_pattern":  best_strat["need_pattern"],
+        "min_score":     best_strat.get("min_score", 8),
         "source":        "optimizer",
     }
     with open("best_params.json", "w") as f:

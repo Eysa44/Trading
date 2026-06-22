@@ -83,6 +83,7 @@ _learn = {
     "rsi_high_buy":    65,
     "rsi_low_sell":    35,
     "rsi_high_sell":   60,
+    "min_score":       8,   # Confluence-Punkte (optimierbar)
     "adjustments":     0,
     "last_adjust":     "Noch keine Anpassung",
     "recent_wr":       0.0,
@@ -108,8 +109,10 @@ def load_best_params():
         _learn["rsi_high_buy"]  = p.get("rsi_high_buy",  65)
         _learn["rsi_low_sell"]  = p.get("rsi_low_sell",  35)
         _learn["rsi_high_sell"] = p.get("rsi_high_sell", 60)
+        _learn["min_score"]     = p.get("min_score",     8)
         print(f"[OPT] Optimierte Parameter geladen: ADX={p['adx_threshold']} "
-              f"RSI-B={p['rsi_low_buy']}-{p['rsi_high_buy']}")
+              f"RSI-B={p['rsi_low_buy']}-{p['rsi_high_buy']} "
+              f"MinScore={p.get('min_score', 8)}")
     except Exception as e:
         print(f"[WARN] best_params.json konnte nicht geladen werden: {e}")
 
@@ -699,6 +702,7 @@ def get_signal(rates):
         rsi_lo_sell = _learn["rsi_low_sell"]
         rsi_hi_sell = _learn["rsi_high_sell"]
         blocked     = list(_learn["blocked_patterns"])
+        min_score   = _learn.get("min_score", 8)
 
     # ── CLASSIC INDICATORS ────────────────────────────────────────────────────
     ef    = ema_series(closes, EMA_FAST)
@@ -799,8 +803,8 @@ def get_signal(rates):
         if pname in BULL_PAT:  buy_score  += 1
         if pname in BEAR_PAT:  sell_score += 1
 
-    # ── DECISION: need 8+ points, margin of 2+, session + volume ─────────────
-    MIN_SCORE = 8
+    # ── DECISION: session + volume gates + optimized confluence threshold ────
+    MIN_SCORE = min_score
     signal = None
     if session and vol_ok:
         if buy_score  >= MIN_SCORE and buy_score  > sell_score + 2:
