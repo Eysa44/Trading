@@ -549,17 +549,41 @@ body {
     <span class="section-title" style="margin:0">LIVE INDIKATOREN — XAUUSD M15</span>
     <span id="sessionBadge" class="version-badge" style="color:var(--dim)">OFFLINE</span>
   </div>
+  <!-- Confluence Score Bar -->
+  <div style="display:flex;gap:4px;padding:4px 2px 6px;align-items:center">
+    <div style="flex:1;background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.2);border-radius:4px;padding:4px 6px;text-align:center">
+      <div style="font-size:9px;color:var(--dim)">BUY SCORE</div>
+      <div id="scoreBar_buy" style="font-size:16px;font-weight:bold;color:var(--green)">—</div>
+    </div>
+    <div style="color:var(--dim);font-size:10px;text-align:center">/ 20<br>pts</div>
+    <div style="flex:1;background:rgba(255,68,68,0.08);border:1px solid rgba(255,68,68,0.2);border-radius:4px;padding:4px 6px;text-align:center">
+      <div style="font-size:9px;color:var(--dim)">SELL SCORE</div>
+      <div id="scoreBar_sell" style="font-size:16px;font-weight:bold;color:var(--red)">—</div>
+    </div>
+    <div style="flex:2;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:4px 6px;text-align:center">
+      <div style="font-size:9px;color:var(--dim)">CONFLUENCE</div>
+      <div id="confluenceResult" style="font-size:13px;font-weight:bold;color:var(--yellow)">ANALYSIERE…</div>
+    </div>
+  </div>
   <table class="matrix-table" style="font-size:10px">
     <thead><tr><th style="text-align:left;width:38%">INDIKATOR</th><th>WERT</th><th>STATUS</th></tr></thead>
     <tbody>
+      <tr style="border-left:2px solid rgba(255,255,255,0.1)"><td class="row-label" style="color:var(--dim);font-size:9px">— KLASSISCH —</td><td></td><td></td></tr>
       <tr><td class="row-label">EMA 20/50/200</td><td id="indEmaVal">—</td><td id="indEmaStatus" style="font-weight:bold">—</td></tr>
       <tr><td class="row-label">ADX (14)</td><td id="indAdxVal">—</td><td id="indAdxStatus">—</td></tr>
       <tr><td class="row-label">RSI (14)</td><td id="indRsiVal">—</td><td id="indRsiStatus">—</td></tr>
       <tr><td class="row-label">MACD Hist</td><td id="indMacdVal">—</td><td id="indMacdStatus">—</td></tr>
-      <tr><td class="row-label">H4 Trend</td><td id="indH4Val">—</td><td id="indH4Status">—</td></tr>
       <tr><td class="row-label">Marktstruktur</td><td id="indStructVal">—</td><td id="indStructStatus">—</td></tr>
-      <tr><td class="row-label">Kerzen-Pattern</td><td id="indPatternVal">—</td><td id="indPatternStatus">—</td></tr>
       <tr><td class="row-label">ATR (14)</td><td id="indAtrVal">—</td><td id="indAtrStatus">—</td></tr>
+      <tr style="border-left:2px solid rgba(255,255,255,0.1)"><td class="row-label" style="color:var(--dim);font-size:9px">— ELITE —</td><td></td><td></td></tr>
+      <tr><td class="row-label">Bollinger Bands</td><td id="indBBVal">—</td><td id="indBBStatus">—</td></tr>
+      <tr><td class="row-label">Stochastic RSI</td><td id="indStochVal">—</td><td id="indStochStatus">—</td></tr>
+      <tr><td class="row-label">VWAP</td><td id="indVwapVal">—</td><td id="indVwapStatus">—</td></tr>
+      <tr><td class="row-label">Fibonacci</td><td id="indFibVal">—</td><td id="indFibStatus">—</td></tr>
+      <tr><td class="row-label">ICT Order Block</td><td id="indOBVal">—</td><td id="indOBStatus">—</td></tr>
+      <tr><td class="row-label">Fair Value Gap</td><td id="indFVGVal">—</td><td id="indFVGStatus">—</td></tr>
+      <tr><td class="row-label">H4 Trend</td><td id="indH4Val">—</td><td id="indH4Status">—</td></tr>
+      <tr><td class="row-label">Kerzen-Pattern</td><td id="indPatternVal">—</td><td id="indPatternStatus">—</td></tr>
     </tbody>
   </table>
 </div>
@@ -880,29 +904,91 @@ function applyRealData(d) {
   set('leaf3',    st.biggest_loss ? '$' + (st.biggest_loss||0).toFixed(2) : '$0', 'var(--red)');
   set('totalSide','TOTAL: ' + sign(totalProfit) + '$' + Math.abs(totalProfit).toFixed(2) + ' ' + cur);
 
+  // ── CONFLUENCE SCORE ──
+  const bScore = ind.buy_score  || 0;
+  const sScore = ind.sell_score || 0;
+  const minSc  = ind.min_score  || 8;
+  set('scoreBar_buy',  bScore, bScore >= minSc ? 'var(--green)' : 'var(--dim)');
+  set('scoreBar_sell', sScore, sScore >= minSc ? 'var(--red)' : 'var(--dim)');
+  let confText = 'WARTE AUF SIGNAL';
+  let confColor = 'var(--dim)';
+  if (sig.signal === 'BUY')  { confText = '▲ BUY SIGNAL';  confColor = 'var(--green)'; }
+  else if (sig.signal === 'SELL') { confText = '▼ SELL SIGNAL'; confColor = 'var(--red)'; }
+  else if (bScore >= minSc - 2 || sScore >= minSc - 2) { confText = 'FAST SIGNAL…'; confColor = 'var(--yellow)'; }
+  set('confluenceResult', confText, confColor);
+
   // ── LIVE INDIKATOREN TABLE ──
+  // Bollinger Bands
+  const bbPctb = ind.bb_pctb;
+  const bbBW   = ind.bb_bandwidth;
+  const bbStatus = bbPctb < 0.2 ? 'OVERSOLD BOUNCE ✓' : bbPctb > 0.8 ? 'OVERBOUGHT REJECT ✓' :
+                   (bbBW && bbBW < 1.0) ? 'SQUEEZE ⚡' : 'NORMAL';
+  // Stochastic RSI
+  const stk    = ind.stoch_k || 0;
+  const stkD   = ind.stoch_d || 0;
+  const stStatus = stk < 25 && stk > stkD ? 'OVERSOLD ✓' : stk > 75 && stk < stkD ? 'OVERBOUGHT ✓' :
+                   stk < 25 ? 'OVERSOLD' : stk > 75 ? 'OVERBOUGHT' : 'NEUTRAL';
+  // VWAP
+  const vwapV  = ind.vwap;
+  const vwapSt = vwapV ? (price > vwapV ? 'ÜBER VWAP ✓' : 'UNTER VWAP ✓') : '—';
+  // Fibonacci
+  const fibNear = ind.fib_nearest;
+  const fibKey  = ind.fib_near_key;
+  const fibSt   = fibKey ? 'KEY LEVEL ⚡' : fibNear ? 'Nächster: ' + fibNear + '%' : '—';
+  // Order Block
+  const obBull = ind.ob_bull_high;
+  const obBear = ind.ob_bear_high;
+  const obVal  = obBull || obBear ? (obBull ? obBull.toFixed(2) : '') + (obBear ? '/' + obBear.toFixed(2) : '') : '—';
+  const obSt   = obBull && price <= obBull && price >= (ind.ob_bull_low||0) ? 'IM BULL OB ✓' :
+                 obBear && price >= (ind.ob_bear_low||0) && price <= obBear ? 'IM BEAR OB ✓' :
+                 (obBull || obBear) ? 'AKTIV' : 'KEIN OB';
+  // Fair Value Gap
+  const fvgB   = ind.fvg_bull_count || 0;
+  const fvgBr  = ind.fvg_bear_count || 0;
+  const fvgSt  = fvgB > 0 || fvgBr > 0 ? `BULL:${fvgB} BEAR:${fvgBr}` : 'KEIN FVG';
+
   const indUpdates = [
+    // Classic
     ['indEmaVal',      ind.ema20 ? ind.ema20.toFixed(2) : '—'],
-    ['indEmaStatus',   ind.ema20 > ind.ema50 && ind.ema50 > ind.ema200 ? 'BULLISH' :
-                       ind.ema20 < ind.ema50 && ind.ema50 < ind.ema200 ? 'BEARISH' : 'NEUTRAL'],
+    ['indEmaStatus',   ind.ema20 > ind.ema50 && ind.ema50 > ind.ema200 ? 'BULLISH ✓' :
+                       ind.ema20 < ind.ema50 && ind.ema50 < ind.ema200 ? 'BEARISH ✓' : 'NEUTRAL'],
     ['indAdxVal',      ind.adx ? ind.adx.toFixed(1) : '—'],
     ['indAdxStatus',   ind.adx >= (lrn.adx_threshold||25) ? 'STARK ✓' : 'SCHWACH ✗'],
     ['indRsiVal',      ind.rsi ? ind.rsi.toFixed(1) : '—'],
     ['indRsiStatus',   ind.rsi > 70 ? 'UEBERKAUFT' : ind.rsi < 30 ? 'UEBERVERKAUFT' : 'OK ✓'],
     ['indMacdVal',     ind.macd_hist ? ind.macd_hist.toFixed(4) : '—'],
     ['indMacdStatus',  ind.macd_hist > 0 ? 'BULLISH ✓' : ind.macd_hist < 0 ? 'BEARISH ✓' : '—'],
-    ['indH4Val',       h4.toUpperCase() || '—'],
-    ['indH4Status',    h4 === 'bullish' ? 'BULLISH ✓' : h4 === 'bearish' ? 'BEARISH ✓' : 'NEUTRAL'],
     ['indStructVal',   (ind.structure || '—').toUpperCase()],
     ['indStructStatus',(ind.structure === 'bullish' || ind.structure === 'bearish') ? 'TREND ✓' : 'NEUTRAL'],
+    ['indAtrVal',      ind.atr ? ind.atr.toFixed(2) : '—'],
+    ['indAtrStatus',   ind.atr ? 'SL:' + (ind.atr * 1.5).toFixed(2) + ' TP:' + (ind.atr * 3.0).toFixed(2) : '—'],
+    // Elite
+    ['indBBVal',       bbPctb != null ? ('%B=' + (bbPctb*100).toFixed(0) + '% BW=' + (bbBW||0).toFixed(1)) : '—'],
+    ['indBBStatus',    bbStatus],
+    ['indStochVal',    stk ? ('K=' + stk.toFixed(0) + ' D=' + stkD.toFixed(0)) : '—'],
+    ['indStochStatus', stStatus],
+    ['indVwapVal',     vwapV ? vwapV.toFixed(2) : '—'],
+    ['indVwapStatus',  vwapSt],
+    ['indFibVal',      fibNear ? ('Fib ' + fibNear + '% @ ' + (ind.fib_price||'—')) : '—'],
+    ['indFibStatus',   fibSt],
+    ['indOBVal',       obVal],
+    ['indOBStatus',    obSt],
+    ['indFVGVal',      fvgB + fvgBr > 0 ? fvgB + fvgBr + ' Gaps' : '—'],
+    ['indFVGStatus',   fvgSt],
+    ['indH4Val',       h4.toUpperCase() || '—'],
+    ['indH4Status',    h4 === 'bullish' ? 'BULLISH ✓' : h4 === 'bearish' ? 'BEARISH ✓' : 'NEUTRAL'],
     ['indPatternVal',  ind.candle_pattern || 'kein Pattern'],
     ['indPatternStatus',ind.candle_bias ? ind.candle_bias.toUpperCase() : '—'],
-    ['indAtrVal',      ind.atr ? ind.atr.toFixed(2) : '—'],
-    ['indAtrStatus',   ind.atr ? 'SL: ' + (ind.atr * 1.5).toFixed(2) + ' / TP: ' + (ind.atr * 3.0).toFixed(2) : '—'],
   ];
   const statusColors = { 'BULLISH ✓':'var(--green)', 'BEARISH ✓':'var(--green)', 'STARK ✓':'var(--green)',
-    'OK ✓':'var(--green)', 'TREND ✓':'var(--green)', 'SCHWACH ✗':'var(--red)',
-    'UEBERKAUFT':'var(--red)', 'UEBERVERKAUFT':'var(--red)', 'NEUTRAL':'var(--dim)' };
+    'OK ✓':'var(--green)', 'TREND ✓':'var(--green)', 'SCHWACH ✗':'var(--red)', 'AKTIV':'var(--yellow)',
+    'UEBERKAUFT':'var(--red)', 'UEBERVERKAUFT':'var(--red)', 'NEUTRAL':'var(--dim)',
+    'KEY LEVEL ⚡':'var(--yellow)', 'SQUEEZE ⚡':'var(--yellow)',
+    'OVERSOLD BOUNCE ✓':'var(--green)', 'OVERBOUGHT REJECT ✓':'var(--red)',
+    'OVERBOUGHT':'var(--orange,#f90)', 'OVERSOLD':'var(--orange,#f90)',
+    'OVERSOLD ✓':'var(--green)', 'OVERBOUGHT ✓':'var(--red)',
+    'ÜBER VWAP ✓':'var(--green)', 'UNTER VWAP ✓':'var(--red)',
+    'IM BULL OB ✓':'var(--green)', 'IM BEAR OB ✓':'var(--red)' };
   indUpdates.forEach(([id, val]) => {
     const c = statusColors[val];
     set(id, val, c || 'var(--text)');

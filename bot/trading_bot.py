@@ -529,6 +529,138 @@ def vol_confirmed(rates):
     return rates[-1]["tick_volume"] >= avg * 1.10
 
 
+# ── ELITE INDICATORS ─────────────────────────────────────────────────────────
+
+def bollinger_bands(closes, period=20, std_dev=2.0):
+    """Bollinger Bands: (upper, mid, lower, bandwidth_pct, %B 0-1)."""
+    if len(closes) < period:
+        return None, None, None, None, None
+    w   = closes[-period:]
+    mid = sum(w) / period
+    std = (sum((x - mid) ** 2 for x in w) / period) ** 0.5
+    if std == 0:
+        return mid, mid, mid, 0.0, 0.5
+    upper = mid + std_dev * std
+    lower = mid - std_dev * std
+    bw    = (upper - lower) / mid * 100
+    pctb  = max(0.0, min(1.0, (closes[-1] - lower) / (upper - lower)))
+    return round(upper, 2), round(mid, 2), round(lower, 2), round(bw, 2), round(pctb, 3)
+
+
+def stoch_rsi(closes, period=14, smooth_k=3, smooth_d=3):
+    """Stochastic RSI — returns (%K, %D) on 0-100 scale."""
+    if len(closes) < period * 3 + smooth_k + smooth_d:
+        return 50.0, 50.0
+    rsi_vals = []
+    for i in range(period, len(closes)):
+        seg = closes[i - period: i + 1]
+        g = [max(seg[j]-seg[j-1], 0)   for j in range(1, len(seg))]
+        l = [abs(min(seg[j]-seg[j-1], 0)) for j in range(1, len(seg))]
+        ag, al = sum(g)/period, sum(l)/period
+        rs = ag / al if al > 0 else 999
+        rsi_vals.append(100 - 100 / (1 + rs))
+    if len(rsi_vals) < period + smooth_k:
+        return 50.0, 50.0
+    stoch = []
+    for i in range(period - 1, len(rsi_vals)):
+        w = rsi_vals[i - period + 1: i + 1]
+        lo, hi = min(w), max(w)
+        stoch.append((rsi_vals[i] - lo) / (hi - lo) * 100 if hi > lo else 50.0)
+    def sma(arr, n): return sum(arr[-n:]) / n
+    k_sm = [sma(stoch[:i+1], smooth_k) for i in range(smooth_k - 1, len(stoch))]
+    if not k_sm:
+        return 50.0, 50.0
+    d_line = sma(k_sm, smooth_d) if len(k_sm) >= smooth_d else k_sm[-1]
+    return round(k_sm[-1], 1), round(d_line, 1)
+
+
+def vwap_calc(rates):
+    """Intraday VWAP — resets at SESSION_START UTC."""
+    if not rates or len(rates) < 2:
+        return None
+    session = []
+    for r in reversed(rates):
+        t = datetime.fromtimestamp(int(r["time"]), tz=timezone.utc)
+        session.insert(0, r)
+        if t.hour == SESSION_START and t.minute < 16:
+            break
+    if not session:
+        session = list(rates)
+    tp_vol = sum(((r["high"]+r["low"]+r["close"])/3) * r["tick_volume"] for r in session)
+    vol    = sum(r["tick_volume"] for r in session)
+    return round(tp_vol / vol, 2) if vol > 0 else None
+
+
+def fibonacci_levels(rates, lookback=55):
+    """Auto swing-high/low + Fibonacci retracement levels (0–100%)."""
+    w = list(rates[-lookback:]) if len(rates) >= lookback else list(rates)
+    if len(w) < 10:
+        return None
+    sh = max(r["high"]  for r in w)
+    sl = min(r["low"]   for r in w)
+    diff = sh - sl
+    if diff < 0.5:
+        return None
+    price = rates[-1]["close"]
+    lvls  = {
+        "0.0":   sh,
+        "23.6":  sh - 0.236 * diff,
+        "38.2":  sh - 0.382 * diff,
+        "50.0":  sh - 0.500 * diff,
+        "61.8":  sh - 0.618 * diff,
+        "78.6":  sh - 0.786 * diff,
+        "100.0": sl,
+    }
+    near = min(lvls.items(), key=lambda x: abs(x[1] - price))
+    dist = abs(near[1] - price) / price * 100
+    return {
+        "swing_high":    round(sh, 2),
+        "swing_low":     round(sl, 2),
+        "levels":        {k: round(v, 2) for k, v in lvls.items()},
+        "nearest":       near[0],
+        "nearest_price": round(near[1], 2),
+        "dist_pct":      round(dist, 2),
+        "near_key":      dist < 0.25,
+    }
+
+
+def find_order_blocks(rates, lookback=40):
+    """
+    ICT Order Block: last opposing candle before 3-bar impulse move.
+    Bullish OB = last bearish bar before 3 consecutive bullish bars.
+    Bearish OB = last bullish bar before 3 consecutive bearish bars.
+    """
+    w = list(rates[-lookback:]) if len(rates) >= lookback else list(rates)
+    bull_ob = bear_ob = None
+    for i in range(2, len(w) - 3):
+        c    = w[i]
+        nxt3 = w[i+1:i+4]
+        if len(nxt3) < 3:
+            break
+        if c["close"] < c["open"] and all(x["close"] > x["open"] for x in nxt3):
+            bull_ob = {"high": round(c["high"], 2), "low": round(c["low"], 2)}
+        if c["close"] > c["open"] and all(x["close"] < x["open"] for x in nxt3):
+            bear_ob = {"high": round(c["high"], 2), "low": round(c["low"], 2)}
+    return {"bullish": bull_ob, "bearish": bear_ob}
+
+
+def find_fair_value_gaps(rates, lookback=30):
+    """
+    Fair Value Gap (FVG / Imbalance): 3-bar price gap.
+    Bullish FVG: bar[i].low > bar[i-2].high  (unfilled gap up).
+    Bearish FVG: bar[i].high < bar[i-2].low  (unfilled gap down).
+    """
+    w = list(rates[-lookback:]) if len(rates) >= lookback else list(rates)
+    bull_fvgs, bear_fvgs = [], []
+    for i in range(2, len(w)):
+        c0, c2 = w[i-2], w[i]
+        if c2["low"] > c0["high"]:
+            bull_fvgs.append({"top": round(c2["low"],2), "bottom": round(c0["high"],2)})
+        if c2["high"] < c0["low"]:
+            bear_fvgs.append({"top": round(c0["low"],2), "bottom": round(c2["high"],2)})
+    return {"bullish": bull_fvgs[-3:], "bearish": bear_fvgs[-3:]}
+
+
 # ── SIGNAL ENGINE ─────────────────────────────────────────────────────────────
 
 def get_bars(symbol, timeframe, n=250):
@@ -541,6 +673,10 @@ def get_bars(symbol, timeframe, n=250):
 
 
 def get_signal(rates):
+    """
+    Multi-strategy confluence signal engine.
+    13 indicators vote — needs 8+ points + session + volume.
+    """
     closes = [r["close"] for r in rates]
     if len(closes) < EMA_SLOW + 10:
         return None, {}
@@ -553,59 +689,156 @@ def get_signal(rates):
         rsi_hi_sell = _learn["rsi_high_sell"]
         blocked     = list(_learn["blocked_patterns"])
 
-    ef = ema_series(closes, EMA_FAST)
-    em = ema_series(closes, EMA_MID)
-    es = ema_series(closes, EMA_SLOW)
+    # ── CLASSIC INDICATORS ────────────────────────────────────────────────────
+    ef    = ema_series(closes, EMA_FAST)
+    em    = ema_series(closes, EMA_MID)
+    es    = ema_series(closes, EMA_SLOW)
     rsi_v = rsi(closes[-RSI_PERIOD - 10:], RSI_PERIOD)
-    ml, ms, mh = macd(closes, MACD_FAST, MACD_SLOW, MACD_SIGNAL)
-    atr_v = atr(list(rates)[-ATR_PERIOD - 5:], ATR_PERIOD)
-    adx_v = adx(list(rates)[-ADX_PERIOD * 3:], ADX_PERIOD)
+    ml, ms_l, mh = macd(closes, MACD_FAST, MACD_SLOW, MACD_SIGNAL)
+    atr_v  = atr(list(rates)[-ATR_PERIOD - 5:], ATR_PERIOD)
+    adx_v  = adx(list(rates)[-ADX_PERIOD * 3:], ADX_PERIOD)
     struct = market_structure(closes[-30:])
     pname, pbias = detect_candle_patterns(list(rates)[-3:])
 
-    indicators = {
-        "ema20":           round(ef[-1], 5),
-        "ema50":           round(em[-1], 5),
-        "ema200":          round(es[-1], 5),
-        "rsi":             round(rsi_v, 1),
-        "macd":            round(ml[-1], 6),
-        "macd_sig":        round(ms[-1], 6),
-        "macd_hist":       round(mh[-1], 6),
-        "atr":             round(atr_v, 5),
-        "adx":             round(adx_v, 1),
-        "adx_min":         adx_min,
-        "structure":       struct,
-        "candle_pattern":  pname,
-        "candle_bias":     pbias,
-    }
+    # ── ELITE INDICATORS ──────────────────────────────────────────────────────
+    bb_up, bb_mid, bb_lo, bb_bw, bb_pctb = bollinger_bands(closes[-60:])
+    stk, stk_d = stoch_rsi(closes[-120:])
+    vwap_v     = vwap_calc(list(rates))
+    fib        = fibonacci_levels(list(rates))
+    obs        = find_order_blocks(list(rates))
+    fvgs       = find_fair_value_gaps(list(rates))
 
+    price    = closes[-1]
     h4_trend = get_h4_trend()
     session  = in_session()
     vol_ok   = vol_confirmed(list(rates))
 
-    indicators["h4_trend"] = h4_trend
-    indicators["session"]  = session
-    indicators["vol_ok"]   = vol_ok
+    # ── CONFLUENCE SCORING ────────────────────────────────────────────────────
+    buy_score = sell_score = 0
 
-    ema_bull  = ef[-1] > em[-1] > es[-1]
-    ema_bear  = ef[-1] < em[-1] < es[-1]
-    macd_bull = mh[-1] > 0 and ml[-1] > ms[-1]
-    macd_bear = mh[-1] < 0 and ml[-1] < ms[-1]
-    blocked_pattern = pname in blocked
+    # 1. EMA Triple Alignment (2pts — institutional trend direction)
+    if ef[-1] > em[-1] > es[-1]:   buy_score  += 2
+    elif ef[-1] < em[-1] < es[-1]: sell_score += 2
 
+    # 2. ADX Strength Gate (1pt — no score if market ranging)
+    if adx_v >= adx_min:
+        buy_score  += 1
+        sell_score += 1
+
+    # 3. RSI Zone (1pt — momentum not extended)
+    if rsi_lo_buy  <= rsi_v <= rsi_hi_buy:  buy_score  += 1
+    if rsi_lo_sell <= rsi_v <= rsi_hi_sell: sell_score += 1
+
+    # 4. MACD Cross (1pt — momentum confirming)
+    if mh[-1] > 0 and ml[-1] > ms_l[-1]:  buy_score  += 1
+    if mh[-1] < 0 and ml[-1] < ms_l[-1]:  sell_score += 1
+
+    # 5. Bollinger Bands (2pts bounce, 1pt squeeze)
+    if bb_pctb is not None:
+        if bb_pctb < 0.2:   buy_score  += 2   # near lower band → oversold bounce
+        elif bb_pctb > 0.8: sell_score += 2   # near upper band → overbought reject
+        if bb_bw is not None and bb_bw < 1.0:
+            buy_score  += 1                   # BB squeeze → explosive move coming
+            sell_score += 1
+
+    # 6. Stochastic RSI Cross (2pts — sensitive momentum reversal)
+    if stk < 25 and stk > stk_d:   buy_score  += 2
+    elif stk > 75 and stk < stk_d: sell_score += 2
+
+    # 7. VWAP Position (1pt — institutional bias)
+    if vwap_v:
+        if price > vwap_v: buy_score  += 1
+        else:              sell_score += 1
+
+    # 8. Fibonacci Key Level (2pts — magnet zones 38.2/50/61.8/78.6)
+    if fib and fib["near_key"] and fib["nearest"] in ("38.2","50.0","61.8","78.6"):
+        if price >= fib["nearest_price"]: buy_score  += 2
+        else:                             sell_score += 2
+
+    # 9. ICT Order Block Zone (2pts — institutional footprint)
+    if obs["bullish"]:
+        ob = obs["bullish"]
+        if ob["low"] <= price <= ob["high"] * 1.0005:
+            buy_score += 2
+    if obs["bearish"]:
+        ob = obs["bearish"]
+        if ob["low"] * 0.9995 <= price <= ob["high"]:
+            sell_score += 2
+
+    # 10. Fair Value Gap (1pt — price filling imbalance)
+    for fg in fvgs["bullish"]:
+        if fg["bottom"] <= price <= fg["top"]: buy_score  += 1; break
+    for fg in fvgs["bearish"]:
+        if fg["bottom"] <= price <= fg["top"]: sell_score += 1; break
+
+    # 11. Market Structure (1pt — higher highs / lower lows)
+    if struct == "bullish":    buy_score  += 1
+    elif struct == "bearish":  sell_score += 1
+
+    # 12. H4 Higher Timeframe (2pts — most important: trade with HTF)
+    if h4_trend == "bullish":  buy_score  += 2
+    elif h4_trend == "bearish": sell_score += 2
+
+    # 13. Candlestick Pattern (1pt — timing confirmation)
+    BULL_PAT = {"Hammer","Inverted Hammer","Dragonfly Doji","Bullish Engulfing",
+                "Piercing Line","Morning Star","Three White Soldiers","Tweezer Bottom"}
+    BEAR_PAT = {"Shooting Star","Hanging Man","Gravestone Doji","Bearish Engulfing",
+                "Dark Cloud Cover","Evening Star","Three Black Crows","Tweezer Top"}
+    if pname and pname not in blocked:
+        if pname in BULL_PAT:  buy_score  += 1
+        if pname in BEAR_PAT:  sell_score += 1
+
+    # ── DECISION: need 8+ points, margin of 2+, session + volume ─────────────
+    MIN_SCORE = 8
     signal = None
-    if (session and vol_ok
-            and ema_bull and h4_trend == "bullish"
-            and adx_v >= adx_min and rsi_lo_buy <= rsi_v <= rsi_hi_buy
-            and macd_bull and struct == "bullish"
-            and pbias == "bullish" and not blocked_pattern):
-        signal = "BUY"
-    elif (session and vol_ok
-            and ema_bear and h4_trend == "bearish"
-            and adx_v >= adx_min and rsi_lo_sell <= rsi_v <= rsi_hi_sell
-            and macd_bear and struct == "bearish"
-            and pbias == "bearish" and not blocked_pattern):
-        signal = "SELL"
+    if session and vol_ok:
+        if buy_score  >= MIN_SCORE and buy_score  > sell_score + 2:
+            signal = "BUY"
+        elif sell_score >= MIN_SCORE and sell_score > buy_score + 2:
+            signal = "SELL"
+
+    indicators = {
+        # Classic
+        "ema20":          round(ef[-1], 2),
+        "ema50":          round(em[-1], 2),
+        "ema200":         round(es[-1], 2),
+        "rsi":            round(rsi_v, 1),
+        "macd":           round(ml[-1], 5),
+        "macd_sig":       round(ms_l[-1], 5),
+        "macd_hist":      round(mh[-1], 5),
+        "atr":            round(atr_v, 2),
+        "adx":            round(adx_v, 1),
+        "adx_min":        adx_min,
+        "structure":      struct,
+        "candle_pattern": pname,
+        "candle_bias":    pbias,
+        # Elite
+        "bb_upper":       bb_up,
+        "bb_mid":         bb_mid,
+        "bb_lower":       bb_lo,
+        "bb_bandwidth":   bb_bw,
+        "bb_pctb":        bb_pctb,
+        "stoch_k":        stk,
+        "stoch_d":        stk_d,
+        "vwap":           vwap_v,
+        "fib_nearest":    fib["nearest"]       if fib else None,
+        "fib_price":      fib["nearest_price"] if fib else None,
+        "fib_near_key":   fib["near_key"]      if fib else False,
+        "fib_swing_high": fib["swing_high"]    if fib else None,
+        "fib_swing_low":  fib["swing_low"]     if fib else None,
+        "ob_bull_high":   obs["bullish"]["high"] if obs["bullish"] else None,
+        "ob_bull_low":    obs["bullish"]["low"]  if obs["bullish"] else None,
+        "ob_bear_high":   obs["bearish"]["high"] if obs["bearish"] else None,
+        "ob_bear_low":    obs["bearish"]["low"]  if obs["bearish"] else None,
+        "fvg_bull_count": len(fvgs["bullish"]),
+        "fvg_bear_count": len(fvgs["bearish"]),
+        "h4_trend":       h4_trend,
+        "session":        session,
+        "vol_ok":         vol_ok,
+        "buy_score":      buy_score,
+        "sell_score":     sell_score,
+        "min_score":      MIN_SCORE,
+    }
 
     return signal, indicators
 
@@ -881,10 +1114,14 @@ def bot_loop():
                     mode    = _learn["mode"]
                     adx_min = _learn["adx_threshold"]
 
-                h4 = indicators.get("h4_trend", "?")
+                h4  = indicators.get("h4_trend", "?")
                 ses = "SESSION" if indicators.get("session") else "OFF-HOURS"
+                bbs = f"BB%B={indicators.get('bb_pctb','?')}"
+                stk_v = indicators.get("stoch_k", 0)
+                bsc = indicators.get("buy_score", 0)
+                ssc = indicators.get("sell_score", 0)
                 print(f"[BOT] {mode} | H4={h4} {ses} | RSI={rsi_v:.1f} ADX={adx_v:.1f} "
-                      f"Kerze={pattern or '--'}({bias}) -> {signal or 'WARTE'}")
+                      f"StochRSI={stk_v} {bbs} | Score B{bsc}/S{ssc} -> {signal or 'WARTE'}")
 
                 if signal and not has_open_position(SYMBOL):
                     balance = _state["account"].get("balance", 1000)
@@ -904,9 +1141,10 @@ if __name__ == "__main__":
     print("  CLAUDE + QUANT  |  Trading Bot v3.0  |  Self-Learning")
     print("=" * 65)
     print(f"  Symbol      : {SYMBOL} M15")
-    print(f"  EMA         : {EMA_FAST}/{EMA_MID}/{EMA_SLOW}")
-    print(f"  RSI         : {RSI_PERIOD}  |  ADX Start: {ADX_MIN}")
+    print(f"  EMA         : {EMA_FAST}/{EMA_MID}/{EMA_SLOW}  |  RSI-{RSI_PERIOD}  |  ADX-{ADX_PERIOD} (Min: {ADX_MIN})")
     print(f"  SL/TP       : ATR x {ATR_SL_MULT} / ATR x {ATR_TP_MULT}")
+    print(f"  Indikatoren : Bollinger Bands + Stoch RSI + VWAP + Fibonacci + ICT Order Blocks + FVG")
+    print(f"  Confluence  : 13 Indikatoren, mind. 8 Punkte + Session + Volumen fuer Trade")
     print(f"  Modi        : SELF-LEARN (default) | KELLY | RANDOM")
     print(f"  Lernen      : alle {LEARN_EVERY} Trades (ADX, RSI, Patterns)")
     print(f"  API         : http://127.0.0.1:{SERVER_PORT}/data")
