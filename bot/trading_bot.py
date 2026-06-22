@@ -93,6 +93,8 @@ _learn = {
     "kelly_f":         0.0,
     "blocked_patterns": [],
     "pattern_stats":   {},
+    "strategy_perf":   {},         # {type: {trades,wins,wr}} — Strategie-Performance
+    "best_strategy":   "ENSEMBLE", # Auto-gewählte beste Strategie
 }
 _last_trade_count = 0
 
@@ -436,6 +438,21 @@ def record_pattern_result(pattern, profit):
         _learn["blocked_patterns"] = blocked
 
 
+def record_strategy_result(strategy_type, profit):
+    """Verfolgt Gewinn/Verlust pro Strategie-Typ für automatischen Switch."""
+    if not strategy_type:
+        return
+    with _lock:
+        sp = _learn["strategy_perf"]
+        if strategy_type not in sp:
+            sp[strategy_type] = {"trades": 0, "wins": 0, "wr": 0.0}
+        sp[strategy_type]["trades"] += 1
+        if profit > 0:
+            sp[strategy_type]["wins"] += 1
+        t = sp[strategy_type]["trades"]
+        sp[strategy_type]["wr"] = round(sp[strategy_type]["wins"] / t * 100, 1)
+
+
 def self_adjust():
     """
     Analysiert die letzten 20 Trades und passt Schwellenwerte an.
@@ -473,6 +490,9 @@ def self_adjust():
             pname = last_pattern.get("name") if isinstance(last_pattern, dict) else None
         for d in new_deals:
             record_pattern_result(pname, d.profit)
+            with _lock:
+                stype = _state.get("indicators", {}).get("strategy_type", "BALANCED")
+            record_strategy_result(stype, d.profit)
 
     _last_trade_count = total
 
@@ -514,6 +534,18 @@ def self_adjust():
             _learn["adx_threshold"]  = max(old_adx - 1, ADX_MIN)
             _learn["adjustments"]   += 1
             msg = f"ADX GESENKT: {old_adx}->{_learn['adx_threshold']} (WR={wr:.0f}%)"
+
+        # Automatisch zur besten Strategie wechseln (mind. 5 Trades pro Typ)
+        sp = _learn["strategy_perf"]
+        qualified = {k: v for k, v in sp.items() if v["trades"] >= 5}
+        if qualified:
+            best_type = max(qualified, key=lambda k: (qualified[k]["wr"], qualified[k]["trades"]))
+            if best_type != _learn["strategy_type"]:
+                old_type = _learn["strategy_type"]
+                _learn["strategy_type"] = best_type
+                _learn["best_strategy"] = best_type
+                msg_type = f"STRATEGIE SWITCH: {old_type}→{best_type} (WR={qualified[best_type]['wr']:.0f}%)"
+                print(f"[LEARN] {msg_type}")
 
         if msg:
             _learn["last_adjust"] = msg
@@ -559,6 +591,8 @@ def vol_confirmed(rates):
 # ── STRATEGIE-GEWICHTUNGEN ────────────────────────────────────────────────────
 # Jeder Typ betont andere Indikatoren — vom Optimizer gefunden.
 STRATEGY_WEIGHTS = {
+    # Ensemble: Mehrheitsvotum aller 7 Strategien (robustester Einstieg)
+    "ENSEMBLE":   dict(ema=2, adx=1, rsi=2, macd=2, bb=3, stoch=3, vwap=2, fib=2, ob=2, fvg=2, struct=1, pat=1),
     # Ausgewogen: alle Indikatoren gleichmäßig gewichtet
     "BALANCED":   dict(ema=2, adx=1, rsi=1, macd=1, bb=2, stoch=2, vwap=1, fib=2, ob=2, fvg=1, struct=1, pat=1),
     # BB-Scalping: Bollinger-Bounce + Stochastic RSI (Mean-Reversion)
@@ -718,10 +752,10 @@ def get_bars(symbol, timeframe, n=250):
     return rates
 
 
-def get_signal(rates):
+def _single_strategy_signal(rates, strat=None):
     """
-    Multi-strategy confluence signal engine.
-    13 indicators vote — needs 8+ points + session + volume.
+    Core confluence signal engine — called by get_signal() and _ensemble_signal().
+    If strat is provided, its values override _learn for adx_min, rsi ranges, etc.
     """
     closes = [r["close"] for r in rates]
     if len(closes) < EMA_SLOW + 10:
@@ -736,6 +770,15 @@ def get_signal(rates):
         blocked      = list(_learn["blocked_patterns"])
         min_score    = _learn.get("min_score", 8)
         stype        = _learn.get("strategy_type", "BALANCED")
+
+    if strat is not None:
+        adx_min    = strat.get("adx_min",    adx_min)
+        rsi_lo_buy = strat.get("rsi_low_b",  rsi_lo_buy)
+        rsi_hi_buy = strat.get("rsi_high_b", rsi_hi_buy)
+        rsi_lo_sell= strat.get("rsi_low_s",  rsi_lo_sell)
+        rsi_hi_sell= strat.get("rsi_high_s", rsi_hi_sell)
+        min_score  = strat.get("min_score",  min_score)
+        stype      = strat.get("strategy_type", stype)
 
     W = STRATEGY_WEIGHTS.get(stype, STRATEGY_WEIGHTS["BALANCED"])
 
@@ -891,6 +934,67 @@ def get_signal(rates):
     }
 
     return signal, indicators
+
+
+def _ensemble_signal(rates):
+    """
+    Führt alle Einzel-Strategien aus und liefert Signal nur wenn Mehrheit einig ist.
+    Gibt (signal, indicators) zurück — indicators vom stärksten Score.
+    """
+    votes_buy = 0
+    votes_sell = 0
+    best_ind = {}
+    best_score_val = 0
+
+    for stype, W in STRATEGY_WEIGHTS.items():
+        if stype == "ENSEMBLE":
+            continue
+        mock_strat = {
+            "strategy_type": stype,
+            "adx_min":       _learn.get("adx_threshold", ADX_MIN),
+            "rsi_low_b":     _learn.get("rsi_low_buy",  40),
+            "rsi_high_b":    _learn.get("rsi_high_buy", 65),
+            "rsi_low_s":     _learn.get("rsi_low_sell", 35),
+            "rsi_high_s":    _learn.get("rsi_high_sell",60),
+            "min_score":     _learn.get("min_score", 8),
+        }
+        sig, ind = _single_strategy_signal(rates, mock_strat)
+        if sig == "BUY":
+            votes_buy += 1
+            sc = ind.get("buy_score", 0)
+            if sc > best_score_val:
+                best_score_val = sc
+                best_ind = ind
+        elif sig == "SELL":
+            votes_sell += 1
+            sc = ind.get("sell_score", 0)
+            if sc > best_score_val:
+                best_score_val = sc
+                best_ind = ind
+
+    total_votes = len(STRATEGY_WEIGHTS) - 1  # minus ENSEMBLE itself
+    threshold = max(total_votes // 2 + 1, 3)  # majority: at least 4 of 7
+
+    if votes_buy >= threshold:
+        best_ind["ensemble_votes"] = f"{votes_buy}/{total_votes} BUY"
+        return "BUY", best_ind
+    if votes_sell >= threshold:
+        best_ind["ensemble_votes"] = f"{votes_sell}/{total_votes} SELL"
+        return "SELL", best_ind
+    return None, best_ind
+
+
+def get_signal(rates):
+    """
+    Multi-strategy confluence signal engine.
+    13 indicators vote — needs 8+ points + session + volume.
+    """
+    # Ensemble-Modus: alle Strategien abstimmen lassen
+    stype = _learn.get("strategy_type", "BALANCED")
+    if stype == "ENSEMBLE":
+        return _ensemble_signal(rates)
+
+    return _single_strategy_signal(rates)
 
 
 # ── ORDER MANAGEMENT ──────────────────────────────────────────────────────────
