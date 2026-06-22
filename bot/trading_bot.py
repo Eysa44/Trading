@@ -58,6 +58,9 @@ MAGIC        = 234567
 CHECK_EVERY  = 15
 SERVER_PORT  = 5000
 LEARN_EVERY  = 10          # Trades zwischen Anpassungen
+TIMEFRAME_H4 = 16388       # mt5.TIMEFRAME_H4
+SESSION_START = 7          # UTC-Stunde: London Open
+SESSION_END   = 17         # UTC-Stunde: NY Close
 
 # Contract sizes fuer Lot-Berechnung (Fallback wenn MT5 nicht verfuegbar)
 CONTRACT_SIZES = {
@@ -492,6 +495,40 @@ def self_adjust():
         _state["learn"] = json.loads(json.dumps(_learn))
 
 
+# ── FILTER: SESSION / H4-TREND / VOLUMEN ─────────────────────────────────────
+
+def in_session():
+    """Nur waehrend London + NY Session traden (07-17 UTC). Bestes Zeitfenster fuer XAUUSD."""
+    h = datetime.now(timezone.utc).hour
+    return SESSION_START <= h < SESSION_END
+
+
+def get_h4_trend():
+    """H4 Trend: EMA20 vs EMA50 auf Stundenkerzen. Gibt 'bullish'/'bearish'/'neutral' zurueck."""
+    if not MT5_AVAILABLE:
+        return "neutral"
+    rates = mt5.copy_rates_from_pos(SYMBOL, TIMEFRAME_H4, 0, 60)
+    if rates is None or len(rates) < 55:
+        return "neutral"
+    closes = [r["close"] for r in rates]
+    e20 = ema_series(closes, 20)[-1]
+    e50 = ema_series(closes, 50)[-1]
+    if e20 > e50 * 1.0002:
+        return "bullish"
+    if e20 < e50 * 0.9998:
+        return "bearish"
+    return "neutral"
+
+
+def vol_confirmed(rates):
+    """Volumen der letzten Kerze > 110% des 20-Kerzen-Durchschnitts."""
+    if len(rates) < 21:
+        return True
+    vols = [r["tick_volume"] for r in rates[-21:-1]]
+    avg  = sum(vols) / len(vols)
+    return rates[-1]["tick_volume"] >= avg * 1.10
+
+
 # ── SIGNAL ENGINE ─────────────────────────────────────────────────────────────
 
 def get_bars(symbol, timeframe, n=250):
@@ -542,6 +579,14 @@ def get_signal(rates):
         "candle_bias":     pbias,
     }
 
+    h4_trend = get_h4_trend()
+    session  = in_session()
+    vol_ok   = vol_confirmed(list(rates))
+
+    indicators["h4_trend"] = h4_trend
+    indicators["session"]  = session
+    indicators["vol_ok"]   = vol_ok
+
     ema_bull  = ef[-1] > em[-1] > es[-1]
     ema_bear  = ef[-1] < em[-1] < es[-1]
     macd_bull = mh[-1] > 0 and ml[-1] > ms[-1]
@@ -549,11 +594,15 @@ def get_signal(rates):
     blocked_pattern = pname in blocked
 
     signal = None
-    if (ema_bull and adx_v >= adx_min and rsi_lo_buy <= rsi_v <= rsi_hi_buy
+    if (session and vol_ok
+            and ema_bull and h4_trend == "bullish"
+            and adx_v >= adx_min and rsi_lo_buy <= rsi_v <= rsi_hi_buy
             and macd_bull and struct == "bullish"
             and pbias == "bullish" and not blocked_pattern):
         signal = "BUY"
-    elif (ema_bear and adx_v >= adx_min and rsi_lo_sell <= rsi_v <= rsi_hi_sell
+    elif (session and vol_ok
+            and ema_bear and h4_trend == "bearish"
+            and adx_v >= adx_min and rsi_lo_sell <= rsi_v <= rsi_hi_sell
             and macd_bear and struct == "bearish"
             and pbias == "bearish" and not blocked_pattern):
         signal = "SELL"
@@ -768,6 +817,19 @@ def bot_loop():
                 atr_v   = indicators.get("atr", 0.001)
                 rsi_v   = indicators.get("rsi", 50)
 
+                # Letzte 80 Kerzen fuer Dashboard-Chart speichern
+                candles_for_chart = [
+                    {
+                        "o": round(float(r["open"]),  2),
+                        "h": round(float(r["high"]),  2),
+                        "l": round(float(r["low"]),   2),
+                        "c": round(float(r["close"]), 2),
+                        "v": int(r["tick_volume"]),
+                        "t": int(r["time"]),
+                    }
+                    for r in rates[-80:]
+                ]
+
                 with _lock:
                     _state["last_signal"] = {
                         "signal":   signal,
@@ -778,12 +840,14 @@ def bot_loop():
                     }
                     _state["indicators"]     = indicators
                     _state["candle_pattern"] = {"name": pattern, "bias": bias}
-                    mode = _learn["mode"]
+                    _state["candles"]        = candles_for_chart
+                    mode    = _learn["mode"]
                     adx_min = _learn["adx_threshold"]
 
-                print(f"[BOT] {mode} | RSI={rsi_v:.1f} ADX={adx_v:.1f}(min={adx_min}) "
-                      f"Kerze={pattern or '--'}({bias}) Struct={indicators.get('structure')} "
-                      f"-> {signal or 'WARTE'}")
+                h4 = indicators.get("h4_trend", "?")
+                ses = "SESSION" if indicators.get("session") else "OFF-HOURS"
+                print(f"[BOT] {mode} | H4={h4} {ses} | RSI={rsi_v:.1f} ADX={adx_v:.1f} "
+                      f"Kerze={pattern or '--'}({bias}) -> {signal or 'WARTE'}")
 
                 if signal and not has_open_position(SYMBOL):
                     balance = _state["account"].get("balance", 1000)

@@ -146,7 +146,7 @@ body {
   justify-content: space-between;
 }
 .pair-label span { color: var(--green); }
-#candleChart { width: 100% !important; display: block; }
+#candleChart { width: 100% !important; display: block; background: var(--bg); border-radius: 2px; }
 .chart-footer {
   margin-top: 4px;
   display: grid;
@@ -419,7 +419,7 @@ body {
       <span class="mult-box">X<span id="mult">86</span></span>
     </div>
     <div class="pair-label">BTC / USD · D-1H&nbsp;<span id="btcPrice">▲ $77,048</span></div>
-    <canvas id="candleChart" height="90"></canvas>
+    <canvas id="candleChart" height="120"></canvas>
     <div class="chart-footer">
       <div class="cf-box"><div class="lbl">ALPHA</div><div class="val g">447</div></div>
       <div class="cf-box"><div class="lbl">BETA</div><div class="val">0.28</div></div>
@@ -842,6 +842,26 @@ function applyRealData(d) {
     document.querySelectorAll('.stat-val.g')[0].textContent = st.win_rate + '%';
   }
 
+  // Echte Kerzen fuer Chart
+  if (d.candles && d.candles.length > 5) {
+    chartData = d.candles;
+    drawChart(chartData);
+    // Pair-Label aktualisieren
+    const pr = d.price || {};
+    if (pr.bid) {
+      document.querySelector('.pair-label').innerHTML =
+        `<span style="color:var(--text)">XAUUSD &nbsp;<span style="color:var(--dim)">M15</span></span>` +
+        `<span id="btcPrice">${pr.bid.toFixed(2)} / ${pr.ask.toFixed(2)} &nbsp;<span style="color:var(--dim)">sp:${pr.spread}p</span></span>`;
+    }
+    // H4 + Session Status
+    const ind = d.indicators || {};
+    const h4  = ind.h4_trend || '';
+    const ses = ind.session;
+    const h4Col = h4 === 'bullish' ? 'var(--green)' : h4 === 'bearish' ? 'var(--red)' : 'var(--dim)';
+    document.querySelector('.pair-label').title =
+      `H4: ${h4.toUpperCase()}  |  ${ses ? 'SESSION AKTIV' : 'OFF-HOURS'}`;
+  }
+
   // Sync mode buttons from bot state
   if (d.learn && d.learn.mode) {
     currentMode = d.learn.mode;
@@ -959,99 +979,154 @@ setInterval(() => {
   document.getElementById('totalSide').textContent = 'TOTAL: +$' + total + 'B';
 }, 2000);
 
-// ── Candlestick chart ────────────────────────────────────
-(function() {
-  const canvas = document.getElementById('candleChart');
-  const ctx = canvas.getContext('2d');
+// ── XAUUSD M15 Candlestick Chart ─────────────────────────
+const chartCanvas = document.getElementById('candleChart');
+const chartCtx    = chartCanvas.getContext('2d');
+let   chartData   = [];   // wird von applyRealData() befuellt
 
-  const candles = [];
-  let price = 77000;
-  for (let i = 0; i < 30; i++) {
-    const open = price;
-    const move = (Math.random() - 0.48) * 600;
-    const close = open + move;
-    const high = Math.max(open, close) + Math.random() * 200;
-    const low  = Math.min(open, close) - Math.random() * 200;
-    candles.push({ open, close, high, low });
-    price = close;
+function emaArr(closes, p) {
+  const k = 2 / (p + 1);
+  const r = [closes[0]];
+  for (let i = 1; i < closes.length; i++) r.push(closes[i] * k + r[i-1] * (1-k));
+  return r;
+}
+
+function drawChart(candles) {
+  if (!candles || candles.length < 5) return;
+  const raw  = candles.slice(-60);   // max 60 Kerzen anzeigen
+  const W    = chartCanvas.offsetWidth || 280;
+  const H    = 120;
+  chartCanvas.width  = W;
+  chartCanvas.height = H;
+  const VOL_H = 18;                  // Hoehe fuer Volumen-Bereich
+  const CH    = H - VOL_H - 2;      // Kerzen-Bereich Hoehe
+
+  // Preis-Range
+  const highs  = raw.map(c => c.h || c.high);
+  const lows   = raw.map(c => c.l || c.low);
+  const closes = raw.map(c => c.c || c.close);
+  const opens  = raw.map(c => c.o || c.open);
+  const vols   = raw.map(c => c.v || c.tick_volume || 0);
+  const mn = Math.min(...lows)  * 0.9998;
+  const mx = Math.max(...highs) * 1.0002;
+  const rng = mx - mn || 1;
+  const toY  = v => CH * (1 - (v - mn) / rng);
+  const maxV = Math.max(...vols) || 1;
+  const toVY = v => H - 1 - (v / maxV) * (VOL_H - 2);
+
+  const n  = raw.length;
+  const cw = (W - 8) / n;
+  const bw = Math.max(1, cw * 0.7);
+  const xc = i => 4 + i * cw + cw / 2;
+
+  // Hintergrund
+  chartCtx.fillStyle = '#04090f';
+  chartCtx.fillRect(0, 0, W, H);
+
+  // Grid-Linien
+  chartCtx.strokeStyle = '#0d1e30';
+  chartCtx.lineWidth = 1;
+  for (let g = 0; g <= 4; g++) {
+    const y = (CH / 4) * g;
+    chartCtx.beginPath(); chartCtx.moveTo(0, y); chartCtx.lineTo(W, y); chartCtx.stroke();
   }
 
-  function drawCandles() {
-    const W = canvas.offsetWidth;
-    const H = canvas.offsetHeight;
-    canvas.width  = W;
-    canvas.height = H;
-
-    const prices = candles.flatMap(c => [c.high, c.low]);
-    const mn = Math.min(...prices);
-    const mx = Math.max(...prices);
-    const range = mx - mn || 1;
-
-    const pad = 4;
-    const cw  = (W - pad*2) / candles.length;
-
-    const toY = v => H - pad - ((v - mn) / range) * (H - pad*2);
-
-    // Background grid
-    ctx.strokeStyle = '#0d1e30';
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= 4; i++) {
-      const y = pad + (i/4) * (H - pad*2);
-      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
-    }
-
-    candles.forEach((c, i) => {
-      const x = pad + i * cw + cw * 0.1;
-      const w = cw * 0.8;
-      const isGreen = c.close >= c.open;
-      const col = isGreen ? '#00d97e' : '#ff3a3a';
-
-      // Wick
-      ctx.strokeStyle = col;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(x + w/2, toY(c.high));
-      ctx.lineTo(x + w/2, toY(c.low));
-      ctx.stroke();
-
-      // Body
-      ctx.fillStyle = col;
-      const y1 = toY(Math.max(c.open, c.close));
-      const y2 = toY(Math.min(c.open, c.close));
-      ctx.fillRect(x, y1, w, Math.max(y2-y1, 1));
+  // EMA 20 + EMA 50 Linien
+  if (closes.length >= 50) {
+    const e20 = emaArr(closes, 20);
+    const e50 = emaArr(closes, 50);
+    [[e20, '#ffd200', 1], [e50, '#1e90ff', 1]].forEach(([arr, col, lw]) => {
+      chartCtx.strokeStyle = col;
+      chartCtx.lineWidth   = lw;
+      chartCtx.globalAlpha = 0.8;
+      chartCtx.beginPath();
+      arr.forEach((v, i) => {
+        const y = toY(v);
+        i === 0 ? chartCtx.moveTo(xc(i), y) : chartCtx.lineTo(xc(i), y);
+      });
+      chartCtx.stroke();
+      chartCtx.globalAlpha = 1;
     });
-
-    // Current price line
-    const last = candles[candles.length-1].close;
-    ctx.strokeStyle = '#ffd200';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([3,3]);
-    ctx.beginPath();
-    ctx.moveTo(0, toY(last));
-    ctx.lineTo(W, toY(last));
-    ctx.stroke();
-    ctx.setLineDash([]);
   }
 
-  drawCandles();
+  // Kerzen zeichnen
+  raw.forEach((c, i) => {
+    const o = c.o || c.open, h = c.h || c.high;
+    const l = c.l || c.low,  cl = c.c || c.close;
+    const bull = cl >= o;
+    const col  = bull ? '#00d97e' : '#ff3a3a';
+    const x    = xc(i);
 
-  // Add new candle periodically
-  setInterval(() => {
-    const last = candles[candles.length-1].close;
-    const open = last;
-    const move = (Math.random() - 0.48) * 400;
-    const close = open + move;
-    candles.push({
-      open, close,
-      high: Math.max(open,close) + Math.random()*150,
-      low:  Math.min(open,close) - Math.random()*150
-    });
-    if (candles.length > 40) candles.shift();
-    drawCandles();
-  }, 2000);
+    // Docht
+    chartCtx.strokeStyle = bull ? '#00a855' : '#cc2222';
+    chartCtx.lineWidth = 1;
+    chartCtx.beginPath();
+    chartCtx.moveTo(x, toY(h));
+    chartCtx.lineTo(x, toY(l));
+    chartCtx.stroke();
 
-  window.addEventListener('resize', drawCandles);
-})();
+    // Koerper
+    const y1 = toY(Math.max(o, cl));
+    const y2 = toY(Math.min(o, cl));
+    const bh = Math.max(y2 - y1, 1);
+    chartCtx.fillStyle = col;
+    chartCtx.fillRect(x - bw/2, y1, bw, bh);
+
+    // Volumen-Balken
+    const vy = toVY(vols[i]);
+    chartCtx.fillStyle = (bull ? '#00d97e' : '#ff3a3a') + '55';
+    chartCtx.fillRect(x - bw/2, vy, bw, H - 1 - vy);
+  });
+
+  // Aktueller Preis (gestrichelte Linie + Label)
+  const lastClose = closes[closes.length - 1];
+  const priceY    = toY(lastClose);
+  chartCtx.strokeStyle = '#ffd200';
+  chartCtx.lineWidth   = 1;
+  chartCtx.setLineDash([3, 3]);
+  chartCtx.beginPath();
+  chartCtx.moveTo(0, priceY);
+  chartCtx.lineTo(W - 52, priceY);
+  chartCtx.stroke();
+  chartCtx.setLineDash([]);
+
+  // Preis-Label rechts
+  chartCtx.fillStyle   = '#ffd200';
+  chartCtx.fillRect(W - 50, priceY - 7, 50, 14);
+  chartCtx.fillStyle   = '#000';
+  chartCtx.font        = 'bold 8px Courier New';
+  chartCtx.textAlign   = 'center';
+  chartCtx.fillText(lastClose.toFixed(2), W - 25, priceY + 3);
+  chartCtx.textAlign   = 'left';
+
+  // Preis-Achse (3 Levels)
+  chartCtx.fillStyle = '#5a7a90';
+  chartCtx.font      = '7px Courier New';
+  [0.25, 0.5, 0.75].forEach(p => {
+    const price = mn + rng * (1 - p);
+    const y     = CH * p;
+    chartCtx.fillText(price.toFixed(1), 2, y - 1);
+  });
+}
+
+function drawSimChart() {
+  if (botConnected && chartData.length > 5) { drawChart(chartData); return; }
+  // Simulation wenn Bot offline
+  const sim = [];
+  let p = 3280;
+  for (let i = 0; i < 60; i++) {
+    const o = p, m = (Math.random() - 0.48) * 3;
+    const c = o + m;
+    sim.push({ o, h: Math.max(o,c)+Math.random()*1.2,
+               l: Math.min(o,c)-Math.random()*1.2, c, v: Math.floor(Math.random()*3000+500) });
+    p = c;
+  }
+  drawChart(sim);
+}
+
+drawSimChart();
+setInterval(() => { if (!botConnected) drawSimChart(); }, 3000);
+window.addEventListener('resize', () => botConnected ? drawChart(chartData) : drawSimChart());
 
 // ── Robustness Matrix ────────────────────────────────────
 (function() {
