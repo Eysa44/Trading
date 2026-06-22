@@ -39,20 +39,21 @@ except ImportError:
     print("[WARN] MetaTrader5 nicht gefunden. pip install MetaTrader5")
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
-SYMBOL       = "EURUSD"
-TIMEFRAME    = 16385       # mt5.TIMEFRAME_M15
-RISK_PCT     = 1.0         # % des Kontos (SELF-LEARN Modus)
-ATR_SL_MULT  = 1.5
-ATR_TP_MULT  = 3.0
-EMA_FAST     = 20
-EMA_MID      = 50
-EMA_SLOW     = 200
-MACD_FAST    = 12
-MACD_SLOW    = 26
-MACD_SIGNAL  = 9
-RSI_PERIOD   = 14
-ADX_PERIOD   = 14
-ADX_MIN      = 25
+SYMBOL         = "XAUUSD"    # Gold (XAU/USD)
+TIMEFRAME      = 16385       # mt5.TIMEFRAME_M15
+RISK_PCT       = 1.0         # % des Kontos (SELF-LEARN Modus)
+ATR_SL_MULT    = 1.5
+ATR_TP_MULT    = 2.5         # Enger TP → höhere Win Rate
+BREAK_EVEN_AT  = 1.0         # Nach 1×ATR Gewinn: SL auf Entry (0 = deaktiviert)
+EMA_FAST       = 20
+EMA_MID        = 50
+EMA_SLOW       = 200
+MACD_FAST      = 12
+MACD_SLOW      = 26
+MACD_SIGNAL    = 9
+RSI_PERIOD     = 14
+ADX_PERIOD     = 14
+ADX_MIN        = 25
 ATR_PERIOD   = 14
 MAGIC        = 234567
 CHECK_EVERY  = 15
@@ -80,6 +81,41 @@ _learn = {
 _last_trade_count = 0
 
 
+def load_best_params():
+    """Laedt optimierte Parameter aus best_params.json (falls vorhanden)."""
+    try:
+        import os
+        path = os.path.join(os.path.dirname(__file__), "best_params.json")
+        if not os.path.exists(path):
+            return
+        with open(path, "r") as f:
+            p = json.load(f)
+        _learn["adx_threshold"] = p.get("adx_threshold", ADX_MIN)
+        _learn["rsi_low_buy"]   = p.get("rsi_low_buy",   40)
+        _learn["rsi_high_buy"]  = p.get("rsi_high_buy",  65)
+        _learn["rsi_low_sell"]  = p.get("rsi_low_sell",  35)
+        _learn["rsi_high_sell"] = p.get("rsi_high_sell", 60)
+        _learn["min_score"]     = p.get("min_score",     8)
+        _learn["strategy_type"] = p.get("strategy_type", "BALANCED")
+        # Break-Even global überschreiben wenn im Optimizer-Ergebnis enthalten
+        if "break_even_at" in p:
+            global BREAK_EVEN_AT
+            BREAK_EVEN_AT = float(p["break_even_at"])
+        if "sl_mult" in p:
+            global ATR_SL_MULT
+            ATR_SL_MULT = float(p["sl_mult"])
+        if "tp_mult" in p:
+            global ATR_TP_MULT
+            ATR_TP_MULT = float(p["tp_mult"])
+        print(f"[OPT] Optimierte Parameter geladen: ADX={p['adx_threshold']} "
+              f"RSI-B={p['rsi_low_buy']}-{p['rsi_high_buy']} "
+              f"Typ={p.get('strategy_type','BALANCED')} Score={p.get('min_score',8)} "
+              f"BE={p.get('break_even_at',1.0)}")
+    except Exception as e:
+        print(f"[WARN] best_params.json konnte nicht geladen werden: {e}")
+
+
+load_best_params()
 # ── SHARED STATE ──────────────────────────────────────────────────────────────
 _lock = threading.Lock()
 _state = {
@@ -562,6 +598,60 @@ def has_open_position(symbol):
     return pos is not None and len(pos) > 0
 
 
+def check_breakeven(symbol):
+    """
+    Break-Even: Wenn offene Position BREAK_EVEN_AT×ATR im Profit ist,
+    wird der Stop-Loss auf den Einstiegspreis verschoben.
+    → Verlust wird zu ±0, Win Rate steigt deutlich.
+    """
+    if not MT5_AVAILABLE or BREAK_EVEN_AT <= 0:
+        return
+    positions = mt5.positions_get(symbol=symbol)
+    if not positions:
+        return
+
+    atr_v = _state.get("indicators", {}).get("atr", 0)
+    if not atr_v or atr_v <= 0:
+        return
+
+    tick = mt5.symbol_info_tick(symbol)
+    if not tick:
+        return
+
+    be_trigger = atr_v * BREAK_EVEN_AT
+
+    for pos in positions:
+        if pos.magic != MAGIC:
+            continue
+
+        if pos.type == 0:  # BUY
+            profit_pts = tick.bid - pos.price_open
+            if profit_pts >= be_trigger and pos.sl < pos.price_open:
+                new_sl = round(pos.price_open + atr_v * 0.1, 5)
+                _modify_sl(pos, new_sl)
+
+        else:              # SELL
+            profit_pts = pos.price_open - tick.ask
+            if profit_pts >= be_trigger and pos.sl > pos.price_open:
+                new_sl = round(pos.price_open - atr_v * 0.1, 5)
+                _modify_sl(pos, new_sl)
+
+
+def _modify_sl(pos, new_sl):
+    """Verschiebt den Stop-Loss einer offenen Position."""
+    req = {
+        "action":   mt5.TRADE_ACTION_SLTP,
+        "symbol":   pos.symbol,
+        "position": pos.ticket,
+        "sl":       new_sl,
+        "tp":       pos.tp,
+    }
+    result = mt5.order_send(req)
+    if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+        print(f"[BE] Break-Even aktiviert: #{pos.ticket} SL → {new_sl:.2f} "
+              f"({'BUY' if pos.type==0 else 'SELL'} @ {pos.price_open:.2f})")
+
+
 def update_account():
     if not MT5_AVAILABLE:
         return
@@ -701,6 +791,7 @@ def bot_loop():
     while True:
         try:
             update_account()
+            check_breakeven(SYMBOL)
             self_adjust()
 
             rates = get_bars(SYMBOL, TIMEFRAME, 250)
