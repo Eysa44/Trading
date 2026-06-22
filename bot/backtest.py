@@ -32,73 +32,20 @@ START_BALANCE  = 10000.0   # USD
 RISK_PCT       = 1.0       # % pro Trade
 CONTRACT_SIZE  = CONTRACT_SIZES.get(SYMBOL, 100)
 
-# Strategien die verglichen werden (Classic + Elite)
+# Benannte Strategien für direkten Vergleich (backtest.py --compare)
 STRATEGIES = [
-    # ── KLASSISCH ──────────────────────────────────────────────────────────────
-    {
-        "name":        "Classic Conservative",
-        "adx_min":     30,
-        "rsi_low_b":   45,  "rsi_high_b": 60,
-        "rsi_low_s":   40,  "rsi_high_s": 55,
-        "need_pattern": True,
-        "sl_mult":     1.5, "tp_mult": 3.0,
-        "min_score":   0,   # 0 = alte Logik (alle Bedingungen AND)
-    },
-    {
-        "name":        "Classic Balanced",
-        "adx_min":     25,
-        "rsi_low_b":   40,  "rsi_high_b": 65,
-        "rsi_low_s":   35,  "rsi_high_s": 60,
-        "need_pattern": True,
-        "sl_mult":     1.5, "tp_mult": 3.0,
-        "min_score":   0,
-    },
-    # ── ELITE CONFLUENCE ───────────────────────────────────────────────────────
-    {
-        "name":        "Elite Balanced (8 Punkte)",
-        "adx_min":     25,
-        "rsi_low_b":   40,  "rsi_high_b": 65,
-        "rsi_low_s":   35,  "rsi_high_s": 60,
-        "need_pattern": True,
-        "sl_mult":     1.5, "tp_mult": 3.0,
-        "min_score":   8,   # Confluence: mind. 8 Punkte
-    },
-    {
-        "name":        "Elite Conservative (10 Punkte)",
-        "adx_min":     28,
-        "rsi_low_b":   42,  "rsi_high_b": 62,
-        "rsi_low_s":   38,  "rsi_high_s": 58,
-        "need_pattern": True,
-        "sl_mult":     1.5, "tp_mult": 3.5,
-        "min_score":   10,
-    },
-    {
-        "name":        "BB Scalp",
-        "adx_min":     22,
-        "rsi_low_b":   35,  "rsi_high_b": 65,
-        "rsi_low_s":   35,  "rsi_high_s": 65,
-        "need_pattern": False,
-        "sl_mult":     1.0, "tp_mult": 2.0,
-        "min_score":   6,   # Mehr Trades, niedrigerer Score
-    },
-    {
-        "name":        "Fibonacci Swing",
-        "adx_min":     20,
-        "rsi_low_b":   38,  "rsi_high_b": 68,
-        "rsi_low_s":   32,  "rsi_high_s": 62,
-        "need_pattern": False,
-        "sl_mult":     2.0, "tp_mult": 5.0,
-        "min_score":   7,
-    },
-    {
-        "name":        "ICT Smart Money",
-        "adx_min":     25,
-        "rsi_low_b":   40,  "rsi_high_b": 65,
-        "rsi_low_s":   35,  "rsi_high_s": 60,
-        "need_pattern": False,
-        "sl_mult":     1.5, "tp_mult": 3.0,
-        "min_score":   9,   # Strenger Score, nutzt OB+FVG+Fib
-    },
+    {"name": "BALANCED",   "strategy_type": "BALANCED",   "adx_min": 25, "rsi_low_b": 40, "rsi_high_b": 65,
+     "rsi_low_s": 35, "rsi_high_s": 60, "need_pattern": False, "sl_mult": 1.5, "tp_mult": 3.0, "min_score": 8},
+    {"name": "BB_SCALP",   "strategy_type": "BB_SCALP",   "adx_min": 22, "rsi_low_b": 38, "rsi_high_b": 65,
+     "rsi_low_s": 35, "rsi_high_s": 63, "need_pattern": False, "sl_mult": 1.0, "tp_mult": 2.5, "min_score": 7},
+    {"name": "FIB_SWING",  "strategy_type": "FIB_SWING",  "adx_min": 20, "rsi_low_b": 38, "rsi_high_b": 68,
+     "rsi_low_s": 32, "rsi_high_s": 62, "need_pattern": False, "sl_mult": 2.0, "tp_mult": 5.0, "min_score": 8},
+    {"name": "ICT_SMC",    "strategy_type": "ICT_SMC",    "adx_min": 22, "rsi_low_b": 40, "rsi_high_b": 65,
+     "rsi_low_s": 35, "rsi_high_s": 60, "need_pattern": False, "sl_mult": 1.5, "tp_mult": 3.5, "min_score": 9},
+    {"name": "VWAP_TREND", "strategy_type": "VWAP_TREND", "adx_min": 25, "rsi_low_b": 40, "rsi_high_b": 65,
+     "rsi_low_s": 35, "rsi_high_s": 60, "need_pattern": False, "sl_mult": 1.5, "tp_mult": 3.0, "min_score": 8},
+    {"name": "MOMENTUM",   "strategy_type": "MOMENTUM",   "adx_min": 22, "rsi_low_b": 38, "rsi_high_b": 68,
+     "rsi_low_s": 32, "rsi_high_s": 62, "need_pattern": False, "sl_mult": 1.2, "tp_mult": 2.5, "min_score": 8},
 ]
 
 
@@ -164,7 +111,37 @@ def load_mt5_candles(n=2000):
         return None
 
 
-# ── SIGNAL-LOGIK (Strategie-Parameter injizierbar) ────────────────────────────
+# ── STRATEGIE-TYPEN MIT GEWICHTUNG ───────────────────────────────────────────
+#
+# Jeder Strategie-Typ gewichtet die Indikatoren unterschiedlich.
+# Schlüssel: ema, adx, rsi, macd, bb, stoch, vwap, fib, ob, fvg, struct, pat
+# Wert: Punkte die dieser Indikator pro Bestätigung beiträgt
+#
+STRATEGY_WEIGHTS = {
+    # Ausgewogene Kombination aller Indikatoren (Standard)
+    "BALANCED":    dict(ema=2, adx=1, rsi=1, macd=1, bb=2, stoch=2, vwap=1, fib=2, ob=2, fvg=1, struct=1, pat=1),
+    # Bollinger-Band Scalping: kaufen am unteren Band, verkaufen am oberen
+    "BB_SCALP":    dict(ema=1, adx=1, rsi=1, macd=1, bb=4, stoch=3, vwap=1, fib=1, ob=1, fvg=1, struct=1, pat=1),
+    # Fibonacci Swing: Einstieg an goldenen Ratio-Levels mit OB-Bestätigung
+    "FIB_SWING":   dict(ema=2, adx=1, rsi=1, macd=1, bb=1, stoch=1, vwap=1, fib=5, ob=3, fvg=2, struct=2, pat=1),
+    # ICT Smart Money: Order Blocks + Fair Value Gaps (institutioneller Ansatz)
+    "ICT_SMC":     dict(ema=1, adx=1, rsi=1, macd=1, bb=1, stoch=1, vwap=1, fib=2, ob=5, fvg=4, struct=2, pat=1),
+    # VWAP Trend: Preis vs. VWAP + EMA-Ausrichtung + MACD
+    "VWAP_TREND":  dict(ema=3, adx=2, rsi=1, macd=2, bb=1, stoch=1, vwap=3, fib=1, ob=1, fvg=1, struct=2, pat=1),
+    # MACD Momentum: MACD-Kreuz + StochRSI + RSI-Bestätigung
+    "MOMENTUM":    dict(ema=2, adx=1, rsi=2, macd=4, bb=1, stoch=3, vwap=1, fib=1, ob=1, fvg=1, struct=1, pat=1),
+}
+
+STRATEGY_TYPES = list(STRATEGY_WEIGHTS.keys())
+
+# ── HILFSFUNKTIONEN ───────────────────────────────────────────────────────────
+
+def rolling_vwap(candles, period=50):
+    """Rollierender VWAP über letzte N Kerzen (für Backtest ohne Session-Grenzen)."""
+    w = candles[-period:] if len(candles) >= period else candles
+    tp_vol = sum(((c["high"]+c["low"]+c["close"])/3) * c["tick_volume"] for c in w)
+    vol    = sum(c["tick_volume"] for c in w)
+    return round(tp_vol / vol, 2) if vol > 0 else None
 
 BULL_PAT = {"Hammer","Inverted Hammer","Dragonfly Doji","Bullish Engulfing",
             "Piercing Line","Morning Star","Three White Soldiers","Tweezer Bottom"}
@@ -174,121 +151,113 @@ BEAR_PAT = {"Shooting Star","Hanging Man","Gravestone Doji","Bearish Engulfing",
 
 def get_signal_with_strategy(candles, strat):
     """
-    Signal basierend auf Strategie-Parametern.
-    min_score=0 → alte AND-Logik (alle Bedingungen erforderlich).
-    min_score>0 → Confluence-Score-System mit Elite-Indikatoren.
+    Confluence-Score-Signal mit strategie-spezifischer Indikator-Gewichtung.
+    Jeder Strategie-Typ (BALANCED, BB_SCALP, FIB_SWING, ICT_SMC, VWAP_TREND,
+    MOMENTUM) gewichtet die Elite-Indikatoren unterschiedlich.
     """
     if len(candles) < 250:
         return None, {}
 
-    closes = [c["close"] for c in candles]
-    ema20  = ema_series(closes, 20)[-1]
-    ema50  = ema_series(closes, 50)[-1]
-    ema200 = ema_series(closes, 200)[-1]
-    rsi_v  = rsi(closes[-30:], 14)
+    closes  = [c["close"] for c in candles]
+    ema20   = ema_series(closes, 20)[-1]
+    ema50   = ema_series(closes, 50)[-1]
+    ema200  = ema_series(closes, 200)[-1]
+    rsi_v   = rsi(closes[-30:], 14)
     ml, ms_l, mh = macd(closes, 12, 26, 9)
-    adx_v  = adx(candles[-60:], 14)
-    atr_v  = atr(candles[-20:], 14)
-    struct = market_structure(closes[-30:])
+    adx_v   = adx(candles[-60:], 14)
+    atr_v   = atr(candles[-20:], 14)
+    struct  = market_structure(closes[-30:])
     pat, bias = detect_candle_patterns(candles[-3:])
 
-    indicators = {
-        "ema20": ema20, "ema50": ema50, "ema200": ema200,
-        "rsi": rsi_v, "adx": adx_v, "atr": atr_v,
-        "structure": struct, "pattern": pat, "bias": bias,
-    }
-
-    min_score = strat.get("min_score", 0)
-
-    # ── ALTE LOGIK (min_score=0): alle Bedingungen AND ─────────────────────────
-    if min_score == 0:
-        if adx_v < strat["adx_min"]:
-            return None, indicators
-        if strat["need_pattern"] and pat is None:
-            return None, indicators
-        if (ema20 > ema50 > ema200
-                and strat["rsi_low_b"] <= rsi_v <= strat["rsi_high_b"]
-                and struct == "bullish"
-                and (not strat["need_pattern"] or bias == "bullish")):
-            return "BUY", indicators
-        if (ema20 < ema50 < ema200
-                and strat["rsi_low_s"] <= rsi_v <= strat["rsi_high_s"]
-                and struct == "bearish"
-                and (not strat["need_pattern"] or bias == "bearish")):
-            return "SELL", indicators
-        return None, indicators
-
-    # ── ELITE CONFLUENCE-LOGIK (min_score>0) ──────────────────────────────────
+    # Elite Indikatoren
     bb_up, bb_mid, bb_lo, bb_bw, bb_pctb = bollinger_bands(closes[-60:])
     stk, stk_d = stoch_rsi(closes[-120:])
+    vwap_v     = rolling_vwap(candles)
     fib        = fibonacci_levels(candles)
     obs        = find_order_blocks(candles)
     fvgs       = find_fair_value_gaps(candles)
     price      = closes[-1]
 
+    indicators = {
+        "ema20": ema20, "ema50": ema50, "ema200": ema200,
+        "rsi": rsi_v, "adx": adx_v, "atr": atr_v,
+        "structure": struct, "pattern": pat, "bias": bias,
+        "bb_pctb": bb_pctb, "stoch_k": stk, "vwap": vwap_v,
+    }
+
+    # Strategie-Gewichtungen laden
+    stype = strat.get("strategy_type", "BALANCED")
+    W     = STRATEGY_WEIGHTS.get(stype, STRATEGY_WEIGHTS["BALANCED"])
+    min_score = max(strat.get("min_score", 7), 1)
+
     buy_score = sell_score = 0
 
-    # 1. EMA Triple Alignment (2pts)
-    if ema20 > ema50 > ema200:   buy_score  += 2
-    elif ema20 < ema50 < ema200: sell_score += 2
+    # 1. EMA Triple Alignment
+    if ema20 > ema50 > ema200:   buy_score  += W["ema"]
+    elif ema20 < ema50 < ema200: sell_score += W["ema"]
 
-    # 2. ADX Gate (1pt each when trend strong)
+    # 2. ADX Trendstärke-Gate
     if adx_v >= strat["adx_min"]:
-        buy_score  += 1
-        sell_score += 1
+        buy_score  += W["adx"]
+        sell_score += W["adx"]
 
-    # 3. RSI Zone (1pt)
-    if strat["rsi_low_b"] <= rsi_v <= strat["rsi_high_b"]: buy_score  += 1
-    if strat["rsi_low_s"] <= rsi_v <= strat["rsi_high_s"]: sell_score += 1
+    # 3. RSI Zone
+    if strat["rsi_low_b"] <= rsi_v <= strat["rsi_high_b"]: buy_score  += W["rsi"]
+    if strat["rsi_low_s"] <= rsi_v <= strat["rsi_high_s"]: sell_score += W["rsi"]
 
-    # 4. MACD (1pt)
-    if mh[-1] > 0 and ml[-1] > ms_l[-1]:  buy_score  += 1
-    if mh[-1] < 0 and ml[-1] < ms_l[-1]:  sell_score += 1
+    # 4. MACD Kreuz
+    if mh[-1] > 0 and ml[-1] > ms_l[-1]:  buy_score  += W["macd"]
+    if mh[-1] < 0 and ml[-1] < ms_l[-1]:  sell_score += W["macd"]
 
-    # 5. Bollinger Bands (2pts bounce, 1pt squeeze)
+    # 5. Bollinger Bands (Bounce an den Bändern)
     if bb_pctb is not None:
-        if bb_pctb < 0.2:   buy_score  += 2
-        elif bb_pctb > 0.8: sell_score += 2
+        if bb_pctb < 0.2:   buy_score  += W["bb"]   # unteres Band → Bounce
+        elif bb_pctb > 0.8: sell_score += W["bb"]   # oberes Band → Rejection
         if bb_bw and bb_bw < 1.0:
-            buy_score += 1; sell_score += 1
+            buy_score += 1; sell_score += 1          # BB Squeeze = Ausbruch kommt
 
-    # 6. Stochastic RSI (2pts)
-    if stk < 25 and stk > stk_d:   buy_score  += 2
-    elif stk > 75 and stk < stk_d: sell_score += 2
+    # 6. Stochastic RSI Kreuz
+    if stk < 25 and stk > stk_d:   buy_score  += W["stoch"]
+    elif stk > 75 and stk < stk_d: sell_score += W["stoch"]
 
-    # 7. Fibonacci Key Level (2pts)
+    # 7. VWAP Position
+    if vwap_v:
+        if price > vwap_v: buy_score  += W["vwap"]
+        else:              sell_score += W["vwap"]
+
+    # 8. Fibonacci Key Level (38.2 / 50 / 61.8 / 78.6)
     if fib and fib["near_key"] and fib["nearest"] in ("38.2","50.0","61.8","78.6"):
-        if price >= fib["nearest_price"]: buy_score  += 2
-        else:                             sell_score += 2
+        if price >= fib["nearest_price"]: buy_score  += W["fib"]
+        else:                             sell_score += W["fib"]
 
-    # 8. Order Block Zone (2pts)
+    # 9. ICT Order Block Zone
     if obs["bullish"]:
         ob = obs["bullish"]
         if ob["low"] <= price <= ob["high"] * 1.0005:
-            buy_score += 2
+            buy_score += W["ob"]
     if obs["bearish"]:
         ob = obs["bearish"]
         if ob["low"] * 0.9995 <= price <= ob["high"]:
-            sell_score += 2
+            sell_score += W["ob"]
 
-    # 9. Fair Value Gap (1pt)
+    # 10. Fair Value Gap
     for fg in fvgs["bullish"]:
-        if fg["bottom"] <= price <= fg["top"]: buy_score  += 1; break
+        if fg["bottom"] <= price <= fg["top"]: buy_score  += W["fvg"]; break
     for fg in fvgs["bearish"]:
-        if fg["bottom"] <= price <= fg["top"]: sell_score += 1; break
+        if fg["bottom"] <= price <= fg["top"]: sell_score += W["fvg"]; break
 
-    # 10. Market Structure (1pt)
-    if struct == "bullish":    buy_score  += 1
-    elif struct == "bearish":  sell_score += 1
+    # 11. Marktstruktur (Higher Highs / Lower Lows)
+    if struct == "bullish":   buy_score  += W["struct"]
+    elif struct == "bearish": sell_score += W["struct"]
 
-    # 11. Candlestick Pattern (1pt)
+    # 12. Kerzenmuster-Bestätigung
     if pat:
-        if pat in BULL_PAT:  buy_score  += 1
-        if pat in BEAR_PAT:  sell_score += 1
+        if pat in BULL_PAT:  buy_score  += W["pat"]
+        if pat in BEAR_PAT:  sell_score += W["pat"]
 
-    # ── ENTSCHEIDUNG ──────────────────────────────────────────────────────────
-    indicators["buy_score"]  = buy_score
-    indicators["sell_score"] = sell_score
+    indicators["buy_score"]      = buy_score
+    indicators["sell_score"]     = sell_score
+    indicators["strategy_type"]  = stype
 
     if buy_score  >= min_score and buy_score  > sell_score + 2:
         return "BUY",  indicators

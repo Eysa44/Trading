@@ -26,7 +26,8 @@ from trading_bot import (
 )
 from backtest import (
     make_xauusd_candles, load_mt5_candles,
-    run_backtest, calc_metrics, START_BALANCE
+    run_backtest, calc_metrics, START_BALANCE,
+    STRATEGY_TYPES
 )
 
 SYMBOL        = "XAUUSD"
@@ -34,31 +35,33 @@ CONTRACT_SIZE = CONTRACT_SIZES.get(SYMBOL, 100)
 
 # ── PARAMETER-SUCHRAUM ────────────────────────────────────────────────────────
 SEARCH_SPACE = {
-    "adx_min":      [18, 20, 22, 24, 25, 27, 30, 33],
-    "rsi_low_b":    [35, 38, 40, 42, 45],
-    "rsi_high_b":   [60, 62, 65, 68, 70],
-    "rsi_low_s":    [30, 33, 35, 38, 40],
-    "rsi_high_s":   [55, 58, 60, 63, 65],
-    "sl_mult":      [1.0, 1.2, 1.5, 1.8, 2.0, 2.5],
-    "tp_mult":      [2.0, 2.5, 3.0, 3.5, 4.0, 5.0],
-    "need_pattern": [True, False],
-    # Elite-Parameter: Confluence Score Schwelle
-    # 0 = klassische AND-Logik, 6-10 = Confluence-System mit Elite-Indikatoren
-    "min_score":    [0, 6, 7, 8, 9, 10],
+    "adx_min":       [18, 20, 22, 24, 25, 27, 30, 33],
+    "rsi_low_b":     [35, 38, 40, 42, 45],
+    "rsi_high_b":    [55, 58, 60, 62, 65],
+    "rsi_low_s":     [30, 33, 35, 38, 40],
+    "rsi_high_s":    [50, 52, 55, 58, 60],
+    "sl_mult":       [1.0, 1.2, 1.5, 1.8, 2.0, 2.5],
+    "tp_mult":       [2.0, 2.5, 3.0, 3.5, 4.0, 5.0],
+    "need_pattern":  [True, False],
+    "min_score":     [6, 7, 8, 9, 10, 11, 12],   # Confluence-Schwelle
+    "strategy_type": STRATEGY_TYPES,              # 6 Elite-Strategie-Typen
 }
 
-# Mindestanforderungen (ungueltige Kombinationen ausfiltern)
-MIN_TRADES    = 10     # mindestens 10 Trades im Backtest
-MAX_DRAWDOWN  = 20.0   # max 20% Drawdown erlaubt
-MIN_WR        = 30.0   # mindestens 30% Win Rate
+# ── QUALITÄTS-FILTER ──────────────────────────────────────────────────────────
+MIN_TRADES    = 10     # Mindestens 10 Trades für aussagekräftiges Ergebnis
+MAX_DRAWDOWN  = 15.0   # Maximal 15% Drawdown (strenger als vorher)
+MIN_WR        = 42.0   # Mindestens 42% Win Rate (war 30% — deutlich strenger!)
 
 
 # ── SCORING ───────────────────────────────────────────────────────────────────
 
 def score(m):
     """
-    Composite Score: belohnt hohen Return + Sharpe + viele Trades,
-    bestraft hohen Drawdown.
+    Win-Rate-optimierter Score:
+    - Win Rate wird stärker belohnt als je zuvor (0.35 Gewicht)
+    - Profit Factor zeigt Qualität der Gewinne (0.20)
+    - Return und Sharpe für Gesamtperformance (je 0.20)
+    - Drawdown-Strafe: alles wird mit (1 - DD/100) multipliziert
     """
     if "error" in m:
         return -999
@@ -71,14 +74,20 @@ def score(m):
     if m["profit_factor"] <= 1.0:
         return -999
 
-    # Hauptmetrik: risikobereinigte Rendite
+    wr       = m["win_rate"] / 100            # 0.0 – 1.0
     sharpe   = max(m["sharpe"], 0)
     ret      = max(m["return_pct"], 0)
-    dd_pen   = 1 - (m["max_drawdown"] / 100)        # Drawdown-Strafe
-    trade_q  = math.log(m["total_trades"] + 1) / 5  # mehr Trades = sicherer
-    pf_bonus = min(m["profit_factor"] / 2.0, 1.0)   # Profit Factor Bonus
+    dd_pen   = 1 - (m["max_drawdown"] / 100)  # Drawdown-Strafe
+    trade_q  = math.log(m["total_trades"] + 1) / 6
+    pf_bonus = min((m["profit_factor"] - 1.0) / 2.0, 1.0)  # PF > 1 wird belohnt
 
-    return round((ret * 0.35 + sharpe * 0.35 + pf_bonus * 0.15 + trade_q * 0.15) * dd_pen, 4)
+    # Win Rate quadratisch: 42%=0.18, 50%=0.25, 60%=0.36, 70%=0.49
+    wr_bonus = wr ** 2
+
+    return round(
+        (wr_bonus * 0.35 + ret * 0.20 + sharpe * 0.20 + pf_bonus * 0.15 + trade_q * 0.10)
+        * dd_pen, 4
+    )
 
 
 # ── WALK-FORWARD TEST ────────────────────────────────────────────────────────
@@ -106,20 +115,21 @@ def walk_forward_score(candles, strat, split=0.65):
 # ── RANDOM SEARCH ─────────────────────────────────────────────────────────────
 
 def random_trial(seed=None):
-    """Waehlt zufaellige Parameter aus dem Suchraum."""
+    """Waehlt zufaellige Parameter aus dem Suchraum (alle 6 Strategie-Typen)."""
     if seed is not None:
         random.seed(seed)
     strat = {
-        "name":         "Trial",
-        "adx_min":      random.choice(SEARCH_SPACE["adx_min"]),
-        "rsi_low_b":    random.choice(SEARCH_SPACE["rsi_low_b"]),
-        "rsi_high_b":   random.choice(SEARCH_SPACE["rsi_high_b"]),
-        "rsi_low_s":    random.choice(SEARCH_SPACE["rsi_low_s"]),
-        "rsi_high_s":   random.choice(SEARCH_SPACE["rsi_high_s"]),
-        "sl_mult":      random.choice(SEARCH_SPACE["sl_mult"]),
-        "tp_mult":      random.choice(SEARCH_SPACE["tp_mult"]),
-        "need_pattern": random.choice(SEARCH_SPACE["need_pattern"]),
-        "min_score":    random.choice(SEARCH_SPACE["min_score"]),
+        "name":          "Trial",
+        "adx_min":       random.choice(SEARCH_SPACE["adx_min"]),
+        "rsi_low_b":     random.choice(SEARCH_SPACE["rsi_low_b"]),
+        "rsi_high_b":    random.choice(SEARCH_SPACE["rsi_high_b"]),
+        "rsi_low_s":     random.choice(SEARCH_SPACE["rsi_low_s"]),
+        "rsi_high_s":    random.choice(SEARCH_SPACE["rsi_high_s"]),
+        "sl_mult":       random.choice(SEARCH_SPACE["sl_mult"]),
+        "tp_mult":       random.choice(SEARCH_SPACE["tp_mult"]),
+        "need_pattern":  random.choice(SEARCH_SPACE["need_pattern"]),
+        "min_score":     random.choice(SEARCH_SPACE["min_score"]),
+        "strategy_type": random.choice(SEARCH_SPACE["strategy_type"]),
     }
     # TP muss groesser als SL sein (mind. RR 1.5)
     if strat["tp_mult"] < strat["sl_mult"] * 1.5:
@@ -138,22 +148,21 @@ def print_top(results, n=10):
     print("\n" + "=" * 80)
     print(f"  TOP {n} STRATEGIEN  |  {SYMBOL}  |  Auto-Optimizer Ergebnisse")
     print("=" * 80)
-    print(f"  {'#':>2}  {'ADX':>4}  {'RSI-B':>9}  {'RSI-S':>9}  "
-          f"{'SL':>4}  {'TP':>4}  {'SC':>3}  "
-          f"{'TRADES':>6}  {'WR':>6}  {'RETURN':>8}  {'SCORE':>7}")
-    print("  " + "-" * 80)
+    print(f"  {'#':>2}  {'STRATEGIE':>11}  {'ADX':>4}  {'SL':>4}  {'TP':>4}  "
+          f"{'SC':>3}  {'TRADES':>6}  {'WR':>7}  {'PF':>5}  {'RETURN':>8}  {'SCORE':>7}")
+    print("  " + "-" * 82)
 
     for rank, r in enumerate(results[:n], 1):
-        s = r["strat"]
-        m = r["metrics"]
-        rsi_b = f"{s['rsi_low_b']}-{s['rsi_high_b']}"
-        rsi_s = f"{s['rsi_low_s']}-{s['rsi_high_s']}"
-        sc    = s.get("min_score", 0)
+        s    = r["strat"]
+        m    = r["metrics"]
+        stype = s.get("strategy_type", "BALANCED")[:11]
+        sc    = s.get("min_score", 8)
         ret_sign = "+" if m["return_pct"] >= 0 else ""
         print(
-            f"  {rank:>2}  {s['adx_min']:>4}  {rsi_b:>9}  {rsi_s:>9}  "
+            f"  {rank:>2}  {stype:>11}  {s['adx_min']:>4}  "
             f"{s['sl_mult']:>4.1f}  {s['tp_mult']:>4.1f}  {sc:>3}  "
-            f"{m['total_trades']:>6}  {m['win_rate']:>5.1f}%  "
+            f"{m['total_trades']:>6}  {m['win_rate']:>6.1f}%  "
+            f"{m['profit_factor']:>5.2f}  "
             f"{ret_sign}{m['return_pct']:>7.1f}%  {r['score']:>7.4f}"
         )
 
@@ -167,8 +176,8 @@ def print_top(results, n=10):
         print(f"    RSI Buy        : {s['rsi_low_b']} - {s['rsi_high_b']}")
         print(f"    RSI Sell       : {s['rsi_low_s']} - {s['rsi_high_s']}")
         print(f"    SL / TP        : ATR x {s['sl_mult']} / ATR x {s['tp_mult']}")
-        print(f"    Pattern Pflicht: {'Ja' if s['need_pattern'] else 'Nein'}")
-        print(f"    Confluence Min : {s.get('min_score', 0)} Punkte ({'Elite' if s.get('min_score',0)>0 else 'Klassisch'})")
+        print(f"    Strategie-Typ  : {s.get('strategy_type', 'BALANCED')}")
+        print(f"    Confluence Min : {s.get('min_score', 8)} Punkte")
         print(f"    Win Rate       : {m['win_rate']}%")
         print(f"    Return         : +{m['return_pct']}%")
         print(f"    Max Drawdown   : {m['max_drawdown']}%")
@@ -190,9 +199,10 @@ def apply_best_params(best_strat):
         "rsi_high_sell": best_strat["rsi_high_s"],
         "sl_mult":       best_strat["sl_mult"],
         "tp_mult":       best_strat["tp_mult"],
-        "need_pattern":  best_strat["need_pattern"],
-        "min_score":     best_strat.get("min_score", 8),
-        "source":        "optimizer",
+        "need_pattern":   best_strat["need_pattern"],
+        "min_score":      best_strat.get("min_score", 8),
+        "strategy_type":  best_strat.get("strategy_type", "BALANCED"),
+        "source":         "optimizer",
     }
     with open("best_params.json", "w") as f:
         json.dump(params, f, indent=2)

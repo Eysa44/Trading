@@ -83,7 +83,8 @@ _learn = {
     "rsi_high_buy":    65,
     "rsi_low_sell":    35,
     "rsi_high_sell":   60,
-    "min_score":       8,   # Confluence-Punkte (optimierbar)
+    "min_score":       8,          # Confluence-Punkte (optimierbar)
+    "strategy_type":   "BALANCED", # Strategie-Typ (optimierbar)
     "adjustments":     0,
     "last_adjust":     "Noch keine Anpassung",
     "recent_wr":       0.0,
@@ -110,9 +111,10 @@ def load_best_params():
         _learn["rsi_low_sell"]  = p.get("rsi_low_sell",  35)
         _learn["rsi_high_sell"] = p.get("rsi_high_sell", 60)
         _learn["min_score"]     = p.get("min_score",     8)
+        _learn["strategy_type"] = p.get("strategy_type", "BALANCED")
         print(f"[OPT] Optimierte Parameter geladen: ADX={p['adx_threshold']} "
               f"RSI-B={p['rsi_low_buy']}-{p['rsi_high_buy']} "
-              f"MinScore={p.get('min_score', 8)}")
+              f"Typ={p.get('strategy_type','BALANCED')} Score={p.get('min_score',8)}")
     except Exception as e:
         print(f"[WARN] best_params.json konnte nicht geladen werden: {e}")
 
@@ -543,6 +545,17 @@ def vol_confirmed(rates):
     return rates[-1]["tick_volume"] >= avg * 1.10
 
 
+# ── STRATEGIE-GEWICHTUNGEN ────────────────────────────────────────────────────
+# Jeder Typ betont andere Indikatoren — vom Optimizer gefunden.
+STRATEGY_WEIGHTS = {
+    "BALANCED":   dict(ema=2, adx=1, rsi=1, macd=1, bb=2, stoch=2, vwap=1, fib=2, ob=2, fvg=1, struct=1, pat=1),
+    "BB_SCALP":   dict(ema=1, adx=1, rsi=1, macd=1, bb=4, stoch=3, vwap=1, fib=1, ob=1, fvg=1, struct=1, pat=1),
+    "FIB_SWING":  dict(ema=2, adx=1, rsi=1, macd=1, bb=1, stoch=1, vwap=1, fib=5, ob=3, fvg=2, struct=2, pat=1),
+    "ICT_SMC":    dict(ema=1, adx=1, rsi=1, macd=1, bb=1, stoch=1, vwap=1, fib=2, ob=5, fvg=4, struct=2, pat=1),
+    "VWAP_TREND": dict(ema=3, adx=2, rsi=1, macd=2, bb=1, stoch=1, vwap=3, fib=1, ob=1, fvg=1, struct=2, pat=1),
+    "MOMENTUM":   dict(ema=2, adx=1, rsi=2, macd=4, bb=1, stoch=3, vwap=1, fib=1, ob=1, fvg=1, struct=1, pat=1),
+}
+
 # ── ELITE INDICATORS ─────────────────────────────────────────────────────────
 
 def bollinger_bands(closes, period=20, std_dev=2.0):
@@ -696,13 +709,16 @@ def get_signal(rates):
         return None, {}
 
     with _lock:
-        adx_min     = _learn["adx_threshold"]
-        rsi_lo_buy  = _learn["rsi_low_buy"]
-        rsi_hi_buy  = _learn["rsi_high_buy"]
-        rsi_lo_sell = _learn["rsi_low_sell"]
-        rsi_hi_sell = _learn["rsi_high_sell"]
-        blocked     = list(_learn["blocked_patterns"])
-        min_score   = _learn.get("min_score", 8)
+        adx_min      = _learn["adx_threshold"]
+        rsi_lo_buy   = _learn["rsi_low_buy"]
+        rsi_hi_buy   = _learn["rsi_high_buy"]
+        rsi_lo_sell  = _learn["rsi_low_sell"]
+        rsi_hi_sell  = _learn["rsi_high_sell"]
+        blocked      = list(_learn["blocked_patterns"])
+        min_score    = _learn.get("min_score", 8)
+        stype        = _learn.get("strategy_type", "BALANCED")
+
+    W = STRATEGY_WEIGHTS.get(stype, STRATEGY_WEIGHTS["BALANCED"])
 
     # ── CLASSIC INDICATORS ────────────────────────────────────────────────────
     ef    = ema_series(closes, EMA_FAST)
@@ -728,82 +744,81 @@ def get_signal(rates):
     session  = in_session()
     vol_ok   = vol_confirmed(list(rates))
 
-    # ── CONFLUENCE SCORING ────────────────────────────────────────────────────
+    # ── CONFLUENCE SCORING (Gewichtung aus Strategie-Typ) ────────────────────
     buy_score = sell_score = 0
 
-    # 1. EMA Triple Alignment (2pts — institutional trend direction)
-    if ef[-1] > em[-1] > es[-1]:   buy_score  += 2
-    elif ef[-1] < em[-1] < es[-1]: sell_score += 2
+    # 1. EMA Triple Alignment
+    if ef[-1] > em[-1] > es[-1]:   buy_score  += W["ema"]
+    elif ef[-1] < em[-1] < es[-1]: sell_score += W["ema"]
 
-    # 2. ADX Strength Gate (1pt — no score if market ranging)
+    # 2. ADX Trendstärke
     if adx_v >= adx_min:
-        buy_score  += 1
-        sell_score += 1
+        buy_score  += W["adx"]
+        sell_score += W["adx"]
 
-    # 3. RSI Zone (1pt — momentum not extended)
-    if rsi_lo_buy  <= rsi_v <= rsi_hi_buy:  buy_score  += 1
-    if rsi_lo_sell <= rsi_v <= rsi_hi_sell: sell_score += 1
+    # 3. RSI Zone
+    if rsi_lo_buy  <= rsi_v <= rsi_hi_buy:  buy_score  += W["rsi"]
+    if rsi_lo_sell <= rsi_v <= rsi_hi_sell: sell_score += W["rsi"]
 
-    # 4. MACD Cross (1pt — momentum confirming)
-    if mh[-1] > 0 and ml[-1] > ms_l[-1]:  buy_score  += 1
-    if mh[-1] < 0 and ml[-1] < ms_l[-1]:  sell_score += 1
+    # 4. MACD Kreuz
+    if mh[-1] > 0 and ml[-1] > ms_l[-1]:  buy_score  += W["macd"]
+    if mh[-1] < 0 and ml[-1] < ms_l[-1]:  sell_score += W["macd"]
 
-    # 5. Bollinger Bands (2pts bounce, 1pt squeeze)
+    # 5. Bollinger Bands (Bounce + Squeeze)
     if bb_pctb is not None:
-        if bb_pctb < 0.2:   buy_score  += 2   # near lower band → oversold bounce
-        elif bb_pctb > 0.8: sell_score += 2   # near upper band → overbought reject
+        if bb_pctb < 0.2:   buy_score  += W["bb"]
+        elif bb_pctb > 0.8: sell_score += W["bb"]
         if bb_bw is not None and bb_bw < 1.0:
-            buy_score  += 1                   # BB squeeze → explosive move coming
-            sell_score += 1
+            buy_score += 1; sell_score += 1
 
-    # 6. Stochastic RSI Cross (2pts — sensitive momentum reversal)
-    if stk < 25 and stk > stk_d:   buy_score  += 2
-    elif stk > 75 and stk < stk_d: sell_score += 2
+    # 6. Stochastic RSI Kreuz
+    if stk < 25 and stk > stk_d:   buy_score  += W["stoch"]
+    elif stk > 75 and stk < stk_d: sell_score += W["stoch"]
 
-    # 7. VWAP Position (1pt — institutional bias)
+    # 7. VWAP Position
     if vwap_v:
-        if price > vwap_v: buy_score  += 1
-        else:              sell_score += 1
+        if price > vwap_v: buy_score  += W["vwap"]
+        else:              sell_score += W["vwap"]
 
-    # 8. Fibonacci Key Level (2pts — magnet zones 38.2/50/61.8/78.6)
+    # 8. Fibonacci Key Level (38.2 / 50 / 61.8 / 78.6)
     if fib and fib["near_key"] and fib["nearest"] in ("38.2","50.0","61.8","78.6"):
-        if price >= fib["nearest_price"]: buy_score  += 2
-        else:                             sell_score += 2
+        if price >= fib["nearest_price"]: buy_score  += W["fib"]
+        else:                             sell_score += W["fib"]
 
-    # 9. ICT Order Block Zone (2pts — institutional footprint)
+    # 9. ICT Order Block Zone
     if obs["bullish"]:
         ob = obs["bullish"]
         if ob["low"] <= price <= ob["high"] * 1.0005:
-            buy_score += 2
+            buy_score += W["ob"]
     if obs["bearish"]:
         ob = obs["bearish"]
         if ob["low"] * 0.9995 <= price <= ob["high"]:
-            sell_score += 2
+            sell_score += W["ob"]
 
-    # 10. Fair Value Gap (1pt — price filling imbalance)
+    # 10. Fair Value Gap
     for fg in fvgs["bullish"]:
-        if fg["bottom"] <= price <= fg["top"]: buy_score  += 1; break
+        if fg["bottom"] <= price <= fg["top"]: buy_score  += W["fvg"]; break
     for fg in fvgs["bearish"]:
-        if fg["bottom"] <= price <= fg["top"]: sell_score += 1; break
+        if fg["bottom"] <= price <= fg["top"]: sell_score += W["fvg"]; break
 
-    # 11. Market Structure (1pt — higher highs / lower lows)
-    if struct == "bullish":    buy_score  += 1
-    elif struct == "bearish":  sell_score += 1
+    # 11. Marktstruktur
+    if struct == "bullish":    buy_score  += W["struct"]
+    elif struct == "bearish":  sell_score += W["struct"]
 
-    # 12. H4 Higher Timeframe (2pts — most important: trade with HTF)
-    if h4_trend == "bullish":  buy_score  += 2
+    # 12. H4 Higher Timeframe (immer 2pt — wichtigster Filter)
+    if h4_trend == "bullish":   buy_score  += 2
     elif h4_trend == "bearish": sell_score += 2
 
-    # 13. Candlestick Pattern (1pt — timing confirmation)
+    # 13. Kerzenmuster
     BULL_PAT = {"Hammer","Inverted Hammer","Dragonfly Doji","Bullish Engulfing",
                 "Piercing Line","Morning Star","Three White Soldiers","Tweezer Bottom"}
     BEAR_PAT = {"Shooting Star","Hanging Man","Gravestone Doji","Bearish Engulfing",
                 "Dark Cloud Cover","Evening Star","Three Black Crows","Tweezer Top"}
     if pname and pname not in blocked:
-        if pname in BULL_PAT:  buy_score  += 1
-        if pname in BEAR_PAT:  sell_score += 1
+        if pname in BULL_PAT:  buy_score  += W["pat"]
+        if pname in BEAR_PAT:  sell_score += W["pat"]
 
-    # ── DECISION: session + volume gates + optimized confluence threshold ────
+    # ── ENTSCHEIDUNG ──────────────────────────────────────────────────────────
     MIN_SCORE = min_score
     signal = None
     if session and vol_ok:
@@ -853,6 +868,7 @@ def get_signal(rates):
         "buy_score":      buy_score,
         "sell_score":     sell_score,
         "min_score":      MIN_SCORE,
+        "strategy_type":  stype,
     }
 
     return signal, indicators
@@ -1129,14 +1145,15 @@ def bot_loop():
                     mode    = _learn["mode"]
                     adx_min = _learn["adx_threshold"]
 
-                h4  = indicators.get("h4_trend", "?")
-                ses = "SESSION" if indicators.get("session") else "OFF-HOURS"
-                bbs = f"BB%B={indicators.get('bb_pctb','?')}"
-                stk_v = indicators.get("stoch_k", 0)
-                bsc = indicators.get("buy_score", 0)
-                ssc = indicators.get("sell_score", 0)
-                print(f"[BOT] {mode} | H4={h4} {ses} | RSI={rsi_v:.1f} ADX={adx_v:.1f} "
-                      f"StochRSI={stk_v} {bbs} | Score B{bsc}/S{ssc} -> {signal or 'WARTE'}")
+                h4    = indicators.get("h4_trend", "?")
+                ses   = "SESSION" if indicators.get("session") else "OFF-HOURS"
+                stype_v = indicators.get("strategy_type", "BALANCED")
+                bsc   = indicators.get("buy_score", 0)
+                ssc   = indicators.get("sell_score", 0)
+                ms_v  = indicators.get("min_score", 8)
+                print(f"[BOT] {mode}/{stype_v} | H4={h4} {ses} | "
+                      f"RSI={rsi_v:.1f} ADX={adx_v:.1f} | "
+                      f"Score B{bsc}/S{ssc} (min={ms_v}) -> {signal or 'WARTE'}")
 
                 if signal and not has_open_position(SYMBOL):
                     balance = _state["account"].get("balance", 1000)
