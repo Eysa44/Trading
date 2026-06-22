@@ -700,16 +700,53 @@ def update_account():
         datetime.now(timezone.utc)
     )
     if deals:
-        our = [d for d in deals if d.magic == MAGIC and d.profit != 0]
+        our     = [d for d in deals if d.magic == MAGIC and d.profit != 0]
         profits = [d.profit for d in our]
         wins    = [p for p in profits if p > 0]
+        losses  = [abs(p) for p in profits if p < 0]
+
+        avg_win  = round(sum(wins)   / len(wins),   2) if wins   else 0.0
+        avg_loss = round(sum(losses) / len(losses), 2) if losses else 0.0
+        pf       = round(sum(wins)   / sum(losses), 2) if losses and sum(losses) > 0 else 0.0
+        ratio    = round(avg_win / avg_loss, 2) if avg_loss > 0 else 0.0
+
+        # Vereinfachter Sharpe aus Trade-P&L
+        sharpe = 0.0
+        if len(profits) > 1:
+            avg_p = sum(profits) / len(profits)
+            std_p = (sum((p - avg_p) ** 2 for p in profits) / len(profits)) ** 0.5
+            if std_p > 0:
+                sharpe = round(avg_p / std_p * (len(profits) ** 0.5) / 10, 2)
+
+        # Max Drawdown aus laufender Equity
+        max_dd = 0.0
+        running = info.balance - sum(profits)   # annaehernd Startkapital
+        peak    = running
+        for p in profits:
+            running += p
+            if running > peak:
+                peak = running
+            dd = (peak - running) / peak * 100 if peak > 0 else 0
+            if dd > max_dd:
+                max_dd = dd
+
+        total_pct = round(sum(profits) / (info.balance - sum(profits)) * 100, 2) \
+                    if (info.balance - sum(profits)) > 0 else 0.0
+
         state_set("stats", {
-            "trades_total": len(profits),
-            "trades_win":   len(wins),
-            "win_rate":     round(len(wins)/len(profits)*100, 1) if profits else 0.0,
-            "total_profit": round(sum(profits), 2),
-            "biggest_win":  round(max(profits), 2) if profits else 0.0,
-            "biggest_loss": round(min(profits), 2) if profits else 0.0,
+            "trades_total":  len(profits),
+            "trades_win":    len(wins),
+            "win_rate":      round(len(wins) / len(profits) * 100, 1) if profits else 0.0,
+            "total_profit":  round(sum(profits), 2),
+            "total_pct":     total_pct,
+            "biggest_win":   round(max(profits), 2) if profits else 0.0,
+            "biggest_loss":  round(min(profits), 2) if profits else 0.0,
+            "avg_win":       avg_win,
+            "avg_loss":      avg_loss,
+            "profit_factor": pf,
+            "ratio":         ratio,
+            "sharpe":        sharpe,
+            "max_drawdown":  round(max_dd, 1),
         })
 
     tick = mt5.symbol_info_tick(SYMBOL)
