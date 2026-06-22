@@ -1,0 +1,290 @@
+{
+  "timestamp": "2026-06-22T20:45:09.340321",
+  "symbol": "XAUUSD",
+  "candles": 5000,
+  "trials": 50,
+  "valid": 10,
+  "data_source": "Synthetisch",
+  "top10": [
+    {
+      "rank": 1,
+      "params": {
+        "name": "Trial-14",
+        "adx_min": 18,
+        "rsi_low_b": 38,
+        "rsi_high_b": 62,
+        "rsi_low_s": 38,
+        "rsi_high_s": 60,
+        "sl_mult": 1.0,
+        "tp_mult": 5.0,
+        "need_pattern": true
+      },
+      "metrics": {
+        "total_trades": 12,
+        "win_rate": 33.3,
+        "profit_factor": 2.46,
+        "total_profit": 1216.02,
+        "return_pct": 12.16,
+        "max_drawdown": 2.0,
+        "sharpe": 1.21,
+        "avg_win": 511.86,
+        "avg_loss": -103.93,
+        "biggest_win": 534.1,
+        "biggest_loss": -108.99
+      },
+      "score": 4.8083
+    },
+    {
+      "rank": 2,
+      "params": {
+        "name": "Trial-13",
+        "adx_min": 24,
+        "rsi_low_b": 42,
+        "rsi_high_b": 65,
+        "rsi_low_s": 30,
+        "rsi_high_s": 65,
+        "sl_mult": 1.0,
+        "tp_mult": 4.0,
+        "need_pattern": true
+      },
+      "metrics": {
+        "total_trades": 13,
+        "win_rate": 30.8,
+        "profit_factor": 1.76,
+        "total_profit": 686.86,
+        "return_pct": 6.87,
+        "max_drawdown": 3.9,
+        "sharpe": 0.83,
+        "avg_win": 396.53,
+        "avg_loss": -99.92,
+        "biggest_win": 411.03,
+        "biggest_loss": -103.8
+      },
+      "score": 2.7928
+    },
+    {
+      "rank": 3,
+      "params": {
+        "name": "Trial-24",
+        "adx_min": 18,
+        "rsi_low_b": 42,
+        "rsi_high_b": 60,
+        "rsi_low_s": 38,
+        "rsi_high_s": 60,
+        "sl_mult": 1.0,
+        "tp_mult": 2.5,
+        "need_pattern": true
+      },
+      "metrics": {
+        "total_trades": 12,
+        "win_rate": 41.7,
+        "profit_factor": 1.76,
+        "total_profit": 545.46,
+        "return_pct": 5.45,
+        "max_drawdown": 2.0,
+        "sharpe": 0.9,
+        "avg_win": 252.35,
+        "avg_loss": -102.33,
+        "biggest_win": 257.21,
+        "biggest_loss": -104.97
+      },
+      "score": 2.3828
+    },
+    {
+      "rank": 4,
+      "params": {
+        "name": "Trial-15",
+        "adx_min": 24,
+        "rsi_low_b": 40,
+        "rsi_high_b": 68,
+        "rsi_low_s": 33,
+        "rsi_high_s": 63,
+        "sl_mult": 1.8,
+        "tp_mult": 4.0,
+        "need_pattern": true
+      },
+      "metrics": {
+        "total_trades": 11,
+        "win_rate": 45.5,
+        "profit_factor": 1.83,
+        "total_profit": 508.43,
+        "return_pct": 5.08,
+        "max_drawdown": 3.0,
+        "sharpe": 0.94,
+        "avg_win": 224.43,
+        "avg_loss": -102.28,
+        "biggest_win": 228.44,
+        "biggest_loss": -103.84
+      },
+      "score": 2.2492
+    },
+    {
+      "rank": 5,
+      "params": {
+        "name": "Trial-29",
+        "adx_min": 18,
+        "rsi_low_b": 38,
+        "rsi_high_b": 70,
+        "rsi_low_s": 35,
+        "rsi_high_s": 55,
+        "sl_mult": 2.5,
+        "tp_mult": 5.0,
+        "need_pattern": true
+      },
+      "metrics": {
+        "total_trades": 11,
+        "win_rate": 45.5,
+        "profit_factor": 1.84,
+        "total_profit": 464.86,
+        "return_pct": 4.65,
+        "max_drawdown": 2.0,
+        "sharpe": 0.94,
+        "avg_win": 203.55,
+        "avg_loss": -92.15,
+        "biggest_win": 206.0,
+        "biggest_loss": -105.06
+      },
+      "score": 2.1257
+    },
+    {
+      "rank": 6,
+      "params": {
+        "name": "Trial-10",
+        "adx_min": 27,
+        "rsi_low_b": 42,
+        "rsi_high_b": 68,
+        "rsi_low_s": 33,
+        "rsi_high_s": 60,
+        "sl_mult": 1.0,
+        "tp_mult": 3.5,
+        "need_pattern": true
+      },
+      "metrics": {
+        "total_trades": 10,
+        "win_rate": 30.0,
+        "profit_factor": 1.48,
+        "total_profit": 333.98,
+        "return_pct": 3.34,
+        "max_drawdown": 3.9,
+        "sharpe": 0.52,
+        "avg_win": 343.39,
+        "avg_loss": -99.46,
+        "biggest_win": 349.46,
+        "biggest_loss": -101.87
+      },
+      "score": 1.4741
+    },
+    {
+      "rank": 7,
+      "params": {
+        "name": "Trial-25",
+        "adx_min": 20,
+        "rsi_low_b": 35,
+        "rsi_high_b": 65,
+        "rsi_low_s": 35,
+        "rsi_high_s": 58,
+        "sl_mult": 1.5,
+        "tp_mult": 3.0,
+        "need_pattern": true
+      },
+      "metrics": {
+        "total_trades": 12,
+        "win_rate": 41.7,
+        "profit_factor": 1.4,
+        "total_profit": 290.75,
+        "return_pct": 2.91,
+        "max_drawdown": 3.0,
+        "sharpe": 0.56,
+        "avg_win": 202.73,
+        "avg_loss": -103.27,
+        "biggest_win": 206.0,
+        "biggest_loss": -105.06
+      },
+      "score": 1.3546
+    },
+    {
+      "rank": 8,
+      "params": {
+        "name": "Trial-38",
+        "adx_min": 33,
+        "rsi_low_b": 40,
+        "rsi_high_b": 60,
+        "rsi_low_s": 38,
+        "rsi_high_s": 60,
+        "sl_mult": 1.5,
+        "tp_mult": 5.0,
+        "need_pattern": false
+      },
+      "metrics": {
+        "total_trades": 10,
+        "win_rate": 30.0,
+        "profit_factor": 1.39,
+        "total_profit": 284.13,
+        "return_pct": 2.84,
+        "max_drawdown": 3.9,
+        "sharpe": 0.45,
+        "avg_win": 335.37,
+        "avg_loss": -103.14,
+        "biggest_win": 341.9,
+        "biggest_loss": -105.99
+      },
+      "score": 1.2759
+    },
+    {
+      "rank": 9,
+      "params": {
+        "name": "Trial-30",
+        "adx_min": 24,
+        "rsi_low_b": 38,
+        "rsi_high_b": 68,
+        "rsi_low_s": 38,
+        "rsi_high_s": 55,
+        "sl_mult": 1.8,
+        "tp_mult": 3.6,
+        "need_pattern": true
+      },
+      "metrics": {
+        "total_trades": 10,
+        "win_rate": 40.0,
+        "profit_factor": 1.31,
+        "total_profit": 190.88,
+        "return_pct": 1.91,
+        "max_drawdown": 3.0,
+        "sharpe": 0.41,
+        "avg_win": 199.92,
+        "avg_loss": -101.46,
+        "biggest_win": 201.96,
+        "biggest_loss": -103.0
+      },
+      "score": 0.9527
+    },
+    {
+      "rank": 10,
+      "params": {
+        "name": "Trial-19",
+        "adx_min": 18,
+        "rsi_low_b": 45,
+        "rsi_high_b": 70,
+        "rsi_low_s": 40,
+        "rsi_high_s": 60,
+        "sl_mult": 2.5,
+        "tp_mult": 4.0,
+        "need_pattern": true
+      },
+      "metrics": {
+        "total_trades": 10,
+        "win_rate": 40.0,
+        "profit_factor": 1.18,
+        "total_profit": 99.67,
+        "return_pct": 1.0,
+        "max_drawdown": 2.4,
+        "sharpe": 0.25,
+        "avg_win": 161.42,
+        "avg_loss": -91.0,
+        "biggest_win": 163.51,
+        "biggest_loss": -103.83
+      },
+      "score": 0.5836
+    }
+  ]
+}
