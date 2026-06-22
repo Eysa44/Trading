@@ -38,6 +38,8 @@ STRATEGIES = [
      "rsi_low_s": 35, "rsi_high_s": 60, "need_pattern": False, "sl_mult": 1.5, "tp_mult": 2.5, "min_score": 8,  "break_even_at": 1.0},
     {"name": "BB_SCALP",   "strategy_type": "BB_SCALP",   "adx_min": 22, "rsi_low_b": 38, "rsi_high_b": 65,
      "rsi_low_s": 35, "rsi_high_s": 63, "need_pattern": False, "sl_mult": 1.0, "tp_mult": 2.0, "min_score": 7,  "break_even_at": 0.8},
+    {"name": "SCALP",      "strategy_type": "SCALP",      "adx_min": 18, "rsi_low_b": 38, "rsi_high_b": 62,
+     "rsi_low_s": 38, "rsi_high_s": 62, "need_pattern": False, "sl_mult": 0.8, "tp_mult": 1.5, "min_score": 6,  "break_even_at": 0.8},
     {"name": "FIB_SWING",  "strategy_type": "FIB_SWING",  "adx_min": 20, "rsi_low_b": 38, "rsi_high_b": 68,
      "rsi_low_s": 32, "rsi_high_s": 62, "need_pattern": False, "sl_mult": 2.0, "tp_mult": 4.0, "min_score": 8,  "break_even_at": 1.2},
     {"name": "ICT_SMC",    "strategy_type": "ICT_SMC",    "adx_min": 22, "rsi_low_b": 40, "rsi_high_b": 65,
@@ -122,6 +124,8 @@ STRATEGY_WEIGHTS = {
     "BALANCED":    dict(ema=2, adx=1, rsi=1, macd=1, bb=2, stoch=2, vwap=1, fib=2, ob=2, fvg=1, struct=1, pat=1),
     # Bollinger-Band Scalping: kaufen am unteren Band, verkaufen am oberen
     "BB_SCALP":    dict(ema=1, adx=1, rsi=1, macd=1, bb=4, stoch=3, vwap=1, fib=1, ob=1, fvg=1, struct=1, pat=1),
+    # Reines Scalping: BB + Stoch + VWAP + RSI, schnelle Ein-/Ausstiege
+    "SCALP":       dict(ema=1, adx=1, rsi=3, macd=1, bb=4, stoch=4, vwap=3, fib=0, ob=0, fvg=0, struct=1, pat=1),
     # Fibonacci Swing: Einstieg an goldenen Ratio-Levels mit OB-Bestätigung
     "FIB_SWING":   dict(ema=2, adx=1, rsi=1, macd=1, bb=1, stoch=1, vwap=1, fib=5, ob=3, fvg=2, struct=2, pat=1),
     # ICT Smart Money: Order Blocks + Fair Value Gaps (institutioneller Ansatz)

@@ -146,7 +146,7 @@ body {
   justify-content: space-between;
 }
 .pair-label span { color: var(--green); }
-#candleChart { width: 100% !important; display: block; }
+#candleChart { width: 100% !important; display: block; background: var(--bg); border-radius: 2px; }
 .chart-footer {
   margin-top: 4px;
   display: grid;
@@ -375,12 +375,13 @@ body {
   <span class="hdr-clock" id="clock">14:33:13</span>
 </div>
 
-<div class="ticker-bar">
-  <span>AF GLOBAL · TOP 5 RISK</span>
-  <span>RESTING <b class="hi">9.0R</b> TRADERS</span>
-  <span>AF NAMES / 24P</span>
-  <span>OUT-PERFORMING AF BY <b class="hi">$514K</b></span>
-  <span><span class="live-dot"></span>LIVE</span>
+<div class="ticker-bar" id="tickerBar">
+  <span id="tkSymbol">XAUUSD · M15</span>
+  <span id="tkMode">SELF-LEARN</span>
+  <span id="tkH4">H4: —</span>
+  <span id="tkSession">SESSION: —</span>
+  <span id="tkSignal">SIGNAL: WARTE</span>
+  <span><span class="live-dot"></span><span id="tkLive">OFFLINE</span></span>
 </div>
 
 <!-- ── TOP ROW ──────────────────────────────────────────── -->
@@ -388,45 +389,48 @@ body {
 
   <!-- LEFT: Portfolio -->
   <div class="portfolio">
-    <div class="channel">@ehami_quant · CRYPTO</div>
-    <div class="pf-value" id="pfValue">$524,770</div>
-    <div class="pf-pnl">ALL-TIME P&amp;L &nbsp;<span class="g" id="pnlVal">+28,645 &nbsp;+45.64%</span></div>
+    <div class="channel" id="acctChannel">— Warte auf Bot —</div>
+    <div class="pf-value" id="pfValue">—</div>
+    <div class="pf-pnl">GESAMT P&amp;L &nbsp;<span id="pnlVal" style="color:var(--dim)">—</span></div>
     <div class="stats-grid">
       <div class="stat-box">
         <div class="stat-label">TRADES</div>
-        <div class="stat-val" id="trades">118,808</div>
+        <div class="stat-val" id="trades">—</div>
       </div>
       <div class="stat-box">
         <div class="stat-label">WIN RATE</div>
-        <div class="stat-val g">61.0%</div>
+        <div class="stat-val g" id="winRate">—</div>
       </div>
       <div class="stat-box">
-        <div class="stat-label">RATIO</div>
-        <div class="stat-val">3.92</div>
+        <div class="stat-label">RATIO W/L</div>
+        <div class="stat-val" id="ratioVal">—</div>
       </div>
       <div class="stat-box">
         <div class="stat-label">AVG WIN</div>
-        <div class="stat-val g">$4.24</div>
+        <div class="stat-val g" id="avgWinVal">—</div>
       </div>
     </div>
-    <div class="liq-risk">LIQ RISK &nbsp;<span class="r">1.0</span>/13</div>
+    <div class="liq-risk">OPEN POS &nbsp;<span class="r" id="openPos">0</span> &nbsp;|&nbsp; AVG LOSS &nbsp;<span class="r" id="avgLossVal">—</span></div>
   </div>
 
   <!-- RIGHT: Chart -->
   <div class="chart-panel">
     <div class="biggest-win">
-      <span>BIGGEST WIN <span class="g">$77,835</span></span>
-      <span class="mult-box">X<span id="mult">86</span></span>
+      <span>BIGGEST WIN &nbsp;<span class="g" id="biggestWin">—</span></span>
+      <span class="mult-box" id="pfBadge" title="Profit Factor">PF —</span>
     </div>
-    <div class="pair-label">BTC / USD · D-1H&nbsp;<span id="btcPrice">▲ $77,048</span></div>
-    <canvas id="candleChart" height="90"></canvas>
+    <div class="pair-label">
+      <span>XAUUSD &nbsp;<span style="color:var(--dim)">M15</span></span>
+      <span id="btcPrice" style="color:var(--green)">—</span>
+    </div>
+    <canvas id="candleChart" height="120"></canvas>
     <div class="chart-footer">
-      <div class="cf-box"><div class="lbl">ALPHA</div><div class="val g">447</div></div>
-      <div class="cf-box"><div class="lbl">BETA</div><div class="val">0.28</div></div>
-      <div class="cf-box"><div class="lbl">SHARPE</div><div class="val g">3.92</div></div>
-      <div class="cf-box"><div class="lbl">SORTINO</div><div class="val g">5.14</div></div>
-      <div class="cf-box"><div class="lbl">MAX DD</div><div class="val r">-8.3%</div></div>
-      <div class="cf-box"><div class="lbl">CALMAR</div><div class="val g">5.51</div></div>
+      <div class="cf-box"><div class="lbl">PROFIT FACTOR</div><div class="val g" id="cfPF">—</div></div>
+      <div class="cf-box"><div class="lbl">SHARPE</div><div class="val g" id="cfSharpe">—</div></div>
+      <div class="cf-box"><div class="lbl">MAX DD</div><div class="val r" id="cfDD">—</div></div>
+      <div class="cf-box"><div class="lbl">ADX</div><div class="val" id="cfAdx">—</div></div>
+      <div class="cf-box"><div class="lbl">RSI</div><div class="val" id="cfRsi">—</div></div>
+      <div class="cf-box"><div class="lbl">H4 TREND</div><div class="val" id="cfH4">—</div></div>
     </div>
   </div>
 
@@ -539,40 +543,64 @@ body {
   </svg>
 </div>
 
-<!-- ── ROBUSTNESS MATRIX ───────────────────────────────── -->
+<!-- ── LIVE INDIKATOREN ────────────────────────────────── -->
 <div class="matrix-section">
   <div class="matrix-header">
-    <span class="section-title" style="margin:0">ROBUSTNESS MATRIX — 7 ASSETS &amp; 6 TF</span>
-    <span class="version-badge">VERSION <span id="matVer">01</span>/100</span>
+    <span class="section-title" style="margin:0">LIVE INDIKATOREN — XAUUSD M15</span>
+    <span id="sessionBadge" class="version-badge" style="color:var(--dim)">OFFLINE</span>
   </div>
-  <table class="matrix-table" id="matrixTable">
-    <thead>
-      <tr>
-        <th>TF / ASSET</th>
-        <th>BTC</th><th>ETH</th><th>SOL</th><th>BNB</th><th>XRP</th><th>ADA</th><th>DOGE</th>
-      </tr>
-    </thead>
-    <tbody id="matrixBody"></tbody>
+  <!-- Confluence Score Bar -->
+  <div style="display:flex;gap:4px;padding:4px 2px 6px;align-items:center">
+    <div style="flex:1;background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.2);border-radius:4px;padding:4px 6px;text-align:center">
+      <div style="font-size:9px;color:var(--dim)">BUY SCORE</div>
+      <div id="scoreBar_buy" style="font-size:16px;font-weight:bold;color:var(--green)">—</div>
+    </div>
+    <div style="color:var(--dim);font-size:10px;text-align:center">/ 20<br>pts</div>
+    <div style="flex:1;background:rgba(255,68,68,0.08);border:1px solid rgba(255,68,68,0.2);border-radius:4px;padding:4px 6px;text-align:center">
+      <div style="font-size:9px;color:var(--dim)">SELL SCORE</div>
+      <div id="scoreBar_sell" style="font-size:16px;font-weight:bold;color:var(--red)">—</div>
+    </div>
+    <div style="flex:2;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:4px 6px;text-align:center">
+      <div style="font-size:9px;color:var(--dim)">CONFLUENCE</div>
+      <div id="confluenceResult" style="font-size:13px;font-weight:bold;color:var(--yellow)">ANALYSIERE…</div>
+    </div>
+  </div>
+  <table class="matrix-table" style="font-size:10px">
+    <thead><tr><th style="text-align:left;width:38%">INDIKATOR</th><th>WERT</th><th>STATUS</th></tr></thead>
+    <tbody>
+      <tr style="border-left:2px solid rgba(255,255,255,0.1)"><td class="row-label" style="color:var(--dim);font-size:9px">— KLASSISCH —</td><td></td><td></td></tr>
+      <tr><td class="row-label">EMA 20/50/200</td><td id="indEmaVal">—</td><td id="indEmaStatus" style="font-weight:bold">—</td></tr>
+      <tr><td class="row-label">ADX (14)</td><td id="indAdxVal">—</td><td id="indAdxStatus">—</td></tr>
+      <tr><td class="row-label">RSI (14)</td><td id="indRsiVal">—</td><td id="indRsiStatus">—</td></tr>
+      <tr><td class="row-label">MACD Hist</td><td id="indMacdVal">—</td><td id="indMacdStatus">—</td></tr>
+      <tr><td class="row-label">Marktstruktur</td><td id="indStructVal">—</td><td id="indStructStatus">—</td></tr>
+      <tr><td class="row-label">ATR (14)</td><td id="indAtrVal">—</td><td id="indAtrStatus">—</td></tr>
+      <tr style="border-left:2px solid rgba(255,255,255,0.1)"><td class="row-label" style="color:var(--dim);font-size:9px">— ELITE —</td><td></td><td></td></tr>
+      <tr><td class="row-label">Bollinger Bands</td><td id="indBBVal">—</td><td id="indBBStatus">—</td></tr>
+      <tr><td class="row-label">Stochastic RSI</td><td id="indStochVal">—</td><td id="indStochStatus">—</td></tr>
+      <tr><td class="row-label">VWAP</td><td id="indVwapVal">—</td><td id="indVwapStatus">—</td></tr>
+      <tr><td class="row-label">Fibonacci</td><td id="indFibVal">—</td><td id="indFibStatus">—</td></tr>
+      <tr><td class="row-label">ICT Order Block</td><td id="indOBVal">—</td><td id="indOBStatus">—</td></tr>
+      <tr><td class="row-label">Fair Value Gap</td><td id="indFVGVal">—</td><td id="indFVGStatus">—</td></tr>
+      <tr><td class="row-label">H4 Trend</td><td id="indH4Val">—</td><td id="indH4Status">—</td></tr>
+      <tr><td class="row-label">Kerzen-Pattern</td><td id="indPatternVal">—</td><td id="indPatternStatus">—</td></tr>
+    </tbody>
   </table>
 </div>
 
-<!-- ── MONTE CARLO ─────────────────────────────────────── -->
+<!-- ── TRADE PERFORMANCE ───────────────────────────────── -->
 <div class="mc-section">
   <div class="section-title" style="margin-bottom:6px">
-    <span>MONTE CARLO SIGNIFICANCE — T_10Y SIMULATED RATES — 92</span>
-    <span style="color:var(--green)">p &lt; 0.001</span>
+    <span>TRADE PERFORMANCE — ECHTE DATEN</span>
+    <span id="totalReturnBadge" style="color:var(--dim)">+0.0%</span>
   </div>
-  <div class="mc-grid">
-    <div class="mc-chart-wrap">
-      <canvas id="mcChart" height="90"></canvas>
-    </div>
-    <div class="mc-scale">
-      <div class="mc-pos">+8.35</div>
-      <div class="mc-pos">+3.25</div>
-      <div style="color:var(--dim)">±0.00</div>
-      <div class="mc-neg">-4.00</div>
-      <div class="mc-neg">-7.15</div>
-    </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;padding:0 2px">
+    <div class="cf-box"><div class="lbl">GESAMT PROFIT</div><div class="val" id="perfTotal">—</div></div>
+    <div class="cf-box"><div class="lbl">PROFIT FACTOR</div><div class="val g" id="perfPF">—</div></div>
+    <div class="cf-box"><div class="lbl">SHARPE RATIO</div><div class="val g" id="perfSharpe">—</div></div>
+    <div class="cf-box"><div class="lbl">MAX DRAWDOWN</div><div class="val r" id="perfDD">—</div></div>
+    <div class="cf-box"><div class="lbl">AVG WIN</div><div class="val g" id="perfAvgWin">—</div></div>
+    <div class="cf-box"><div class="lbl">AVG LOSS</div><div class="val r" id="perfAvgLoss">—</div></div>
   </div>
 </div>
 
@@ -582,9 +610,11 @@ body {
 <script>
 const BOT_API = 'http://127.0.0.1:5000/data';
 let botConnected = false;
-let pfBase = 524770, btcBase = 77048;
 let cachedBotData = null;
 let currentMode = 'SELF-LEARN';
+
+function dash(v) { return (v === null || v === undefined || v === '') ? '—' : v; }
+function col(v, pos, neg) { return v > 0 ? pos : v < 0 ? neg : 'var(--dim)'; }
 
 // ── Toast helper ─────────────────────────────────────────────
 function toast(msg, color) {
@@ -780,50 +810,79 @@ async function fetchBotData() {
   }
 }
 
+function set(id, val, color) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = val;
+  if (color) el.style.color = color;
+}
+
 function applyRealData(d) {
   cachedBotData = d;
   updateExecCycle(d);
-  const acc = d.account || {};
+  const acc = d.account   || {};
   const sig = d.last_signal || {};
-  const st  = d.stats || {};
-  const pr  = d.price || {};
+  const st  = d.stats     || {};
+  const pr  = d.price     || {};
+  const ind = d.indicators || {};
+  const lrn = d.learn     || {};
+  const cur = acc.currency || 'USD';
 
-  // Header status
-  document.querySelector('.channel').textContent =
-    (acc.name || 'DEMO') + ' · ' + (acc.server || 'MT5');
-
-  // Portfolio value
+  // ── ACCOUNT ──
+  set('acctChannel', (acc.name || '—') + ' · ' + (acc.server || 'MT5'));
   if (acc.equity) {
-    const eq = acc.equity;
-    document.getElementById('pfValue').textContent =
-      acc.currency + ' ' + eq.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
-    pfBase = eq;
+    set('pfValue', cur + ' ' + acc.equity.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}));
   }
+  const openPnl = acc.profit || 0;
+  const totalPct = st.total_pct || 0;
+  const totalProfit = st.total_profit || 0;
+  const sign = s => s >= 0 ? '+' : '';
+  set('pnlVal',
+    sign(totalProfit) + totalProfit.toFixed(2) + ' ' + cur +
+    ' (' + sign(totalPct) + totalPct.toFixed(2) + '%)',
+    col(totalProfit, 'var(--green)', 'var(--red)'));
 
-  // PnL
-  if (acc.profit !== undefined) {
-    const pnl = acc.profit;
-    const sign = pnl >= 0 ? '+' : '';
-    document.getElementById('pnlVal').textContent =
-      'OPEN P&L  ' + sign + pnl.toFixed(2) + ' ' + (acc.currency || 'USD');
-    document.getElementById('pnlVal').style.color = pnl >= 0 ? 'var(--green)' : 'var(--red)';
-  }
+  // ── STATS BOX ──
+  set('trades',   (st.trades_total || 0).toLocaleString());
+  set('winRate',  (st.win_rate  || 0).toFixed(1) + '%', st.win_rate >= 50 ? 'var(--green)' : 'var(--yellow)');
+  set('ratioVal', (st.ratio     || 0).toFixed(2), st.ratio >= 2 ? 'var(--green)' : 'var(--text)');
+  set('avgWinVal','$' + (st.avg_win  || 0).toFixed(2), 'var(--green)');
+  set('avgLossVal','$' + (st.avg_loss || 0).toFixed(2), 'var(--red)');
+  set('openPos',  (d.positions || []).length);
 
-  // Stats
-  if (st.trades_total !== undefined) {
-    document.getElementById('trades').textContent = st.trades_total.toLocaleString();
-  }
+  // ── CHART HEADER ──
+  set('biggestWin', '$' + (st.biggest_win || 0).toFixed(2), 'var(--green)');
+  const pf = st.profit_factor || 0;
+  set('pfBadge', 'PF ' + (pf > 0 ? pf.toFixed(2) : '—'));
+  document.getElementById('pfBadge').style.background = pf >= 1.5 ? 'var(--green)' : pf >= 1 ? 'var(--yellow)' : 'var(--red)';
+  document.getElementById('pfBadge').style.color = '#000';
 
-  // Price label
+  // ── PRICE ──
   if (pr.bid) {
-    document.getElementById('btcPrice').textContent =
-      d.symbol + '  ' + pr.bid + ' / ' + pr.ask +
-      '  spread:' + pr.spread + 'p';
-    document.querySelector('.pair-label').firstChild.textContent =
-      d.symbol + ' · M15  ';
+    set('btcPrice', pr.bid.toFixed(2) + ' / ' + pr.ask.toFixed(2) + '  sp:' + pr.spread + 'p', 'var(--green)');
   }
 
-  // Signal badge on FILL step
+  // ── CHART FOOTER ──
+  set('cfPF',     pf > 0 ? pf.toFixed(2) : '—', pf >= 1.5 ? 'var(--green)' : 'var(--yellow)');
+  set('cfSharpe', st.sharpe ? st.sharpe.toFixed(2) : '—', (st.sharpe||0) >= 1 ? 'var(--green)' : 'var(--text)');
+  set('cfDD',     st.max_drawdown ? '-' + st.max_drawdown.toFixed(1) + '%' : '—', 'var(--red)');
+  set('cfAdx',    ind.adx ? ind.adx.toFixed(1) + (ind.adx >= (lrn.adx_threshold||25) ? ' ✓' : ' ✗') : '—',
+      ind.adx >= (lrn.adx_threshold||25) ? 'var(--green)' : 'var(--red)');
+  set('cfRsi',    ind.rsi ? ind.rsi.toFixed(1) : '—', ind.rsi > 70 || ind.rsi < 30 ? 'var(--red)' : 'var(--text)');
+  const h4 = ind.h4_trend || '';
+  set('cfH4', h4.toUpperCase() || '—', h4==='bullish'?'var(--green)':h4==='bearish'?'var(--red)':'var(--dim)');
+
+  // ── TICKER BAR ──
+  const ses = ind.session;
+  const mode = lrn.mode || 'SELF-LEARN';
+  set('tkMode',    mode, mode==='SELF-LEARN'?'var(--green)':'var(--orange)');
+  set('tkH4',      'H4: ' + (h4.toUpperCase()||'—'), h4==='bullish'?'var(--green)':h4==='bearish'?'var(--red)':'var(--dim)');
+  set('tkSession', ses ? 'SESSION AKTIV' : 'OFF-HOURS', ses ? 'var(--green)' : 'var(--dim)');
+  set('tkSignal',  sig.signal ? 'SIGNAL: ' + sig.signal : 'SIGNAL: WARTE', sig.signal?'var(--yellow)':'var(--dim)');
+  set('tkLive',    d.connected ? 'LIVE' : 'OFFLINE', d.connected ? 'var(--green)' : 'var(--red)');
+  document.querySelector('.live-dot').style.background = d.connected ? 'var(--green)' : 'var(--red)';
+
+  // ── SIGNAL FILL STEP ──
   if (sig.signal) {
     const badge = document.getElementById('stepFill');
     badge.textContent = sig.signal;
@@ -831,227 +890,309 @@ function applyRealData(d) {
     badge.style.color = '#000';
   }
 
-  // Biggest win
-  if (st.biggest_win !== undefined && st.biggest_win > 0) {
-    document.querySelector('.biggest-win .g').textContent =
-      '$' + st.biggest_win.toFixed(2);
+  // ── EXEC BAR ──
+  const positions = d.positions || [];
+  const pct = positions.length > 0 ? 100 : sig.signal ? 80 : ind.adx >= (lrn.adx_threshold||25) ? 50 : 20;
+  document.getElementById('execBar').style.width = pct + '%';
+  set('inflight', positions.length);
+
+  // ── DECISION TREE ──
+  const wr = st.win_rate || 0;
+  set('rootPct',  wr.toFixed(1) + '%', wr >= 50 ? 'var(--green)' : 'var(--yellow)');
+  set('leaf1',    st.total_profit >= 0 ? '+$' + (st.total_profit||0).toFixed(2) : '$' + (st.total_profit||0).toFixed(2),
+      col(st.total_profit||0,'var(--green)','var(--red)'));
+  set('leaf3',    st.biggest_loss ? '$' + (st.biggest_loss||0).toFixed(2) : '$0', 'var(--red)');
+  set('totalSide','TOTAL: ' + sign(totalProfit) + '$' + Math.abs(totalProfit).toFixed(2) + ' ' + cur);
+
+  // ── CONFLUENCE SCORE ──
+  const bScore = ind.buy_score  || 0;
+  const sScore = ind.sell_score || 0;
+  const minSc  = ind.min_score  || 8;
+  set('scoreBar_buy',  bScore, bScore >= minSc ? 'var(--green)' : 'var(--dim)');
+  set('scoreBar_sell', sScore, sScore >= minSc ? 'var(--red)' : 'var(--dim)');
+  let confText = 'WARTE AUF SIGNAL';
+  let confColor = 'var(--dim)';
+  if (sig.signal === 'BUY')  { confText = '▲ BUY SIGNAL';  confColor = 'var(--green)'; }
+  else if (sig.signal === 'SELL') { confText = '▼ SELL SIGNAL'; confColor = 'var(--red)'; }
+  else if (bScore >= minSc - 2 || sScore >= minSc - 2) { confText = 'FAST SIGNAL…'; confColor = 'var(--yellow)'; }
+  set('confluenceResult', confText, confColor);
+
+  // ── LIVE INDIKATOREN TABLE ──
+  // Bollinger Bands
+  const bbPctb = ind.bb_pctb;
+  const bbBW   = ind.bb_bandwidth;
+  const bbStatus = bbPctb < 0.2 ? 'OVERSOLD BOUNCE ✓' : bbPctb > 0.8 ? 'OVERBOUGHT REJECT ✓' :
+                   (bbBW && bbBW < 1.0) ? 'SQUEEZE ⚡' : 'NORMAL';
+  // Stochastic RSI
+  const stk    = ind.stoch_k || 0;
+  const stkD   = ind.stoch_d || 0;
+  const stStatus = stk < 25 && stk > stkD ? 'OVERSOLD ✓' : stk > 75 && stk < stkD ? 'OVERBOUGHT ✓' :
+                   stk < 25 ? 'OVERSOLD' : stk > 75 ? 'OVERBOUGHT' : 'NEUTRAL';
+  // VWAP
+  const vwapV  = ind.vwap;
+  const vwapSt = vwapV ? (price > vwapV ? 'ÜBER VWAP ✓' : 'UNTER VWAP ✓') : '—';
+  // Fibonacci
+  const fibNear = ind.fib_nearest;
+  const fibKey  = ind.fib_near_key;
+  const fibSt   = fibKey ? 'KEY LEVEL ⚡' : fibNear ? 'Nächster: ' + fibNear + '%' : '—';
+  // Order Block
+  const obBull = ind.ob_bull_high;
+  const obBear = ind.ob_bear_high;
+  const obVal  = obBull || obBear ? (obBull ? obBull.toFixed(2) : '') + (obBear ? '/' + obBear.toFixed(2) : '') : '—';
+  const obSt   = obBull && price <= obBull && price >= (ind.ob_bull_low||0) ? 'IM BULL OB ✓' :
+                 obBear && price >= (ind.ob_bear_low||0) && price <= obBear ? 'IM BEAR OB ✓' :
+                 (obBull || obBear) ? 'AKTIV' : 'KEIN OB';
+  // Fair Value Gap
+  const fvgB   = ind.fvg_bull_count || 0;
+  const fvgBr  = ind.fvg_bear_count || 0;
+  const fvgSt  = fvgB > 0 || fvgBr > 0 ? `BULL:${fvgB} BEAR:${fvgBr}` : 'KEIN FVG';
+
+  const indUpdates = [
+    // Classic
+    ['indEmaVal',      ind.ema20 ? ind.ema20.toFixed(2) : '—'],
+    ['indEmaStatus',   ind.ema20 > ind.ema50 && ind.ema50 > ind.ema200 ? 'BULLISH ✓' :
+                       ind.ema20 < ind.ema50 && ind.ema50 < ind.ema200 ? 'BEARISH ✓' : 'NEUTRAL'],
+    ['indAdxVal',      ind.adx ? ind.adx.toFixed(1) : '—'],
+    ['indAdxStatus',   ind.adx >= (lrn.adx_threshold||25) ? 'STARK ✓' : 'SCHWACH ✗'],
+    ['indRsiVal',      ind.rsi ? ind.rsi.toFixed(1) : '—'],
+    ['indRsiStatus',   ind.rsi > 70 ? 'UEBERKAUFT' : ind.rsi < 30 ? 'UEBERVERKAUFT' : 'OK ✓'],
+    ['indMacdVal',     ind.macd_hist ? ind.macd_hist.toFixed(4) : '—'],
+    ['indMacdStatus',  ind.macd_hist > 0 ? 'BULLISH ✓' : ind.macd_hist < 0 ? 'BEARISH ✓' : '—'],
+    ['indStructVal',   (ind.structure || '—').toUpperCase()],
+    ['indStructStatus',(ind.structure === 'bullish' || ind.structure === 'bearish') ? 'TREND ✓' : 'NEUTRAL'],
+    ['indAtrVal',      ind.atr ? ind.atr.toFixed(2) : '—'],
+    ['indAtrStatus',   ind.atr ? 'SL:' + (ind.atr * 1.5).toFixed(2) + ' TP:' + (ind.atr * 3.0).toFixed(2) : '—'],
+    // Elite
+    ['indBBVal',       bbPctb != null ? ('%B=' + (bbPctb*100).toFixed(0) + '% BW=' + (bbBW||0).toFixed(1)) : '—'],
+    ['indBBStatus',    bbStatus],
+    ['indStochVal',    stk ? ('K=' + stk.toFixed(0) + ' D=' + stkD.toFixed(0)) : '—'],
+    ['indStochStatus', stStatus],
+    ['indVwapVal',     vwapV ? vwapV.toFixed(2) : '—'],
+    ['indVwapStatus',  vwapSt],
+    ['indFibVal',      fibNear ? ('Fib ' + fibNear + '% @ ' + (ind.fib_price||'—')) : '—'],
+    ['indFibStatus',   fibSt],
+    ['indOBVal',       obVal],
+    ['indOBStatus',    obSt],
+    ['indFVGVal',      fvgB + fvgBr > 0 ? fvgB + fvgBr + ' Gaps' : '—'],
+    ['indFVGStatus',   fvgSt],
+    ['indH4Val',       h4.toUpperCase() || '—'],
+    ['indH4Status',    h4 === 'bullish' ? 'BULLISH ✓' : h4 === 'bearish' ? 'BEARISH ✓' : 'NEUTRAL'],
+    ['indPatternVal',  ind.candle_pattern || 'kein Pattern'],
+    ['indPatternStatus',ind.candle_bias ? ind.candle_bias.toUpperCase() : '—'],
+  ];
+  const statusColors = { 'BULLISH ✓':'var(--green)', 'BEARISH ✓':'var(--green)', 'STARK ✓':'var(--green)',
+    'OK ✓':'var(--green)', 'TREND ✓':'var(--green)', 'SCHWACH ✗':'var(--red)', 'AKTIV':'var(--yellow)',
+    'UEBERKAUFT':'var(--red)', 'UEBERVERKAUFT':'var(--red)', 'NEUTRAL':'var(--dim)',
+    'KEY LEVEL ⚡':'var(--yellow)', 'SQUEEZE ⚡':'var(--yellow)',
+    'OVERSOLD BOUNCE ✓':'var(--green)', 'OVERBOUGHT REJECT ✓':'var(--red)',
+    'OVERBOUGHT':'var(--orange,#f90)', 'OVERSOLD':'var(--orange,#f90)',
+    'OVERSOLD ✓':'var(--green)', 'OVERBOUGHT ✓':'var(--red)',
+    'ÜBER VWAP ✓':'var(--green)', 'UNTER VWAP ✓':'var(--red)',
+    'IM BULL OB ✓':'var(--green)', 'IM BEAR OB ✓':'var(--red)' };
+  indUpdates.forEach(([id, val]) => {
+    const c = statusColors[val];
+    set(id, val, c || 'var(--text)');
+  });
+  set('sessionBadge', ses ? 'SESSION AKTIV' : 'OFFLINE', ses ? 'var(--green)' : 'var(--red)');
+
+  // ── TRADE PERFORMANCE ──
+  set('perfTotal',   sign(totalProfit) + '$' + Math.abs(totalProfit).toFixed(2) + ' ' + cur,
+      col(totalProfit,'var(--green)','var(--red)'));
+  set('perfPF',      pf > 0 ? pf.toFixed(2) : '—', pf >= 1.5 ? 'var(--green)' : pf >= 1 ? 'var(--yellow)' : 'var(--red)');
+  set('perfSharpe',  st.sharpe ? st.sharpe.toFixed(2) : '—', (st.sharpe||0) >= 1 ? 'var(--green)' : 'var(--text)');
+  set('perfDD',      st.max_drawdown ? '-' + st.max_drawdown.toFixed(1) + '%' : '—', 'var(--red)');
+  set('perfAvgWin',  st.avg_win  ? '+$' + st.avg_win.toFixed(2)  : '—', 'var(--green)');
+  set('perfAvgLoss', st.avg_loss ? '-$' + st.avg_loss.toFixed(2) : '—', 'var(--red)');
+  const retBadge = sign(totalPct) + totalPct.toFixed(2) + '%';
+  set('totalReturnBadge', retBadge, col(totalPct,'var(--green)','var(--red)'));
+
+  // ── ECHTE KERZEN ──
+  if (d.candles && d.candles.length > 5) {
+    chartData = d.candles;
+    drawChart(chartData);
   }
 
-  // Win rate
-  if (st.win_rate !== undefined) {
-    document.querySelectorAll('.stat-val.g')[0].textContent = st.win_rate + '%';
-  }
-
-  // Sync mode buttons from bot state
-  if (d.learn && d.learn.mode) {
-    currentMode = d.learn.mode;
+  // ── MODE BUTTONS ──
+  if (lrn.mode) {
+    currentMode = lrn.mode;
     Object.entries(modeIds).forEach(([m, id]) => {
       const el = document.getElementById(id);
-      if (el) el.classList.toggle('tag-active', m === d.learn.mode);
+      if (el) el.classList.toggle('tag-active', m === lrn.mode);
     });
   }
 
-  // Learning panel
-  if (d.learn) {
-    const lrn = d.learn;
-    const adxEl = document.getElementById('learnAdx');
-    const wrEl  = document.getElementById('learnWr');
-    const adjEl = document.getElementById('learnAdj');
-    const kfEl  = document.getElementById('learnKelly');
-    const blEl  = document.getElementById('learnBlocked');
-    const ptEl  = document.getElementById('learnPatterns');
-    const modeEl= document.getElementById('learnMode');
-    if (adxEl) adxEl.textContent = (lrn.adx_threshold || 25).toFixed(0);
-    if (wrEl)  wrEl.textContent  = (lrn.recent_wr || 0).toFixed(1) + '% (' + (lrn.recent_trades||0) + ' Trades)';
-    if (adjEl) adjEl.textContent = lrn.last_adjust || 'Noch keine';
-    if (kfEl) {
-      const kf = (lrn.kelly_f || 0) * 100;
-      kfEl.textContent = kf.toFixed(2) + '%';
-      kfEl.style.color = kf > 0 ? 'var(--green)' : 'var(--dim)';
-    }
-    if (modeEl) {
-      modeEl.textContent = lrn.mode || 'SELF-LEARN';
-      modeEl.style.color = lrn.mode === 'SELF-LEARN' ? 'var(--green)' : 'var(--orange)';
-    }
-    if (blEl) {
-      const blocked = lrn.blocked_patterns || [];
-      blEl.textContent = blocked.length ? blocked.join(', ') : 'keine';
-      blEl.style.color = blocked.length ? 'var(--red)' : 'var(--green)';
-    }
-    if (ptEl && lrn.pattern_stats) {
-      const stats = lrn.pattern_stats;
-      const rows = Object.entries(stats)
-        .sort((a,b) => (b[1].wr||0) - (a[1].wr||0))
-        .slice(0, 5)
-        .map(([pat, s]) => {
-          const wr = (s.wr || 0).toFixed(0);
-          const col = s.wr >= 60 ? 'var(--green)' : s.wr >= 40 ? 'var(--yellow)' : 'var(--red)';
-          return `<tr><td>${pat}</td><td>${s.total||0}</td><td style="color:${col}">${wr}%</td></tr>`;
-        }).join('');
-      ptEl.innerHTML = rows || '<tr><td colspan="3" style="color:var(--dim)">Noch keine Trades</td></tr>';
-    }
+  // ── LEARNING PANEL ──
+  set('learnMode',    lrn.mode || 'SELF-LEARN', lrn.mode === 'SELF-LEARN' ? 'var(--green)' : 'var(--orange)');
+  set('learnAdx',     (lrn.adx_threshold || 25).toFixed(0));
+  set('learnWr',      (lrn.recent_wr || 0).toFixed(1) + '% (' + (lrn.recent_trades||0) + ' Trades)');
+  set('learnAdj',     lrn.last_adjust || 'Noch keine Anpassung');
+  const kf = (lrn.kelly_f || 0);
+  set('learnKelly',   kf.toFixed(2) + '%', kf > 0 ? 'var(--green)' : 'var(--dim)');
+  const blocked = lrn.blocked_patterns || [];
+  set('learnBlocked', blocked.length ? blocked.join(', ') : 'keine', blocked.length ? 'var(--red)' : 'var(--green)');
+  const ptEl = document.getElementById('learnPatterns');
+  if (ptEl && lrn.pattern_stats) {
+    const rows = Object.entries(lrn.pattern_stats)
+      .sort((a,b) => (b[1].wr||0) - (a[1].wr||0)).slice(0, 5)
+      .map(([pat, s]) => {
+        const c = s.wr >= 60 ? 'var(--green)' : s.wr >= 40 ? 'var(--yellow)' : 'var(--red)';
+        return `<tr><td>${pat}</td><td>${s.total||0}</td><td style="color:${c}">${(s.wr||0).toFixed(0)}%</td></tr>`;
+      }).join('');
+    ptEl.innerHTML = rows || '<tr><td colspan="3" style="color:var(--dim)">Noch keine Trades</td></tr>';
   }
-
-  // Live/connected indicator
-  document.querySelector('.live-dot').style.background = d.connected ? 'var(--green)' : 'var(--red)';
 }
 
 setInterval(fetchBotData, 3000);
 fetchBotData();
 
-// ── Simulation fallback (when bot not running) ────────────
-function updatePortfolio() {
-  if (botConnected) return;
-  pfBase += (Math.random() - 0.46) * 80;
-  const val = Math.round(pfBase);
-  document.getElementById('pfValue').textContent = '$' + val.toLocaleString();
-  const pnl = val - 360000;
-  const pct = ((pnl/360000)*100).toFixed(2);
-  const sign = pnl >= 0 ? '+' : '';
-  document.getElementById('pnlVal').textContent =
-    sign + pnl.toLocaleString() + '   ' + sign + pct + '%';
+// ── XAUUSD M15 Candlestick Chart ─────────────────────────
+const chartCanvas = document.getElementById('candleChart');
+const chartCtx    = chartCanvas.getContext('2d');
+let   chartData   = [];   // wird von applyRealData() befuellt
+
+function emaArr(closes, p) {
+  const k = 2 / (p + 1);
+  const r = [closes[0]];
+  for (let i = 1; i < closes.length; i++) r.push(closes[i] * k + r[i-1] * (1-k));
+  return r;
 }
-setInterval(updatePortfolio, 800);
 
-// ── Price simulation fallback ────────────────────────────
-function updateBTC() {
-  if (botConnected) return;
-  btcBase += (Math.random() - 0.48) * 50;
-  document.getElementById('btcPrice').textContent =
-    '▲ $' + Math.round(btcBase).toLocaleString();
-}
-setInterval(updateBTC, 1500);
+function drawChart(candles) {
+  if (!candles || candles.length < 5) return;
+  const raw  = candles.slice(-60);   // max 60 Kerzen anzeigen
+  const W    = chartCanvas.offsetWidth || 280;
+  const H    = 120;
+  chartCanvas.width  = W;
+  chartCanvas.height = H;
+  const VOL_H = 18;                  // Hoehe fuer Volumen-Bereich
+  const CH    = H - VOL_H - 2;      // Kerzen-Bereich Hoehe
 
-// ── Multiplier ───────────────────────────────────────────
-const mults = [86, 111, 92, 104, 78];
-let mi = 0;
-setInterval(() => {
-  mi = (mi+1) % mults.length;
-  document.getElementById('mult').textContent = mults[mi];
-}, 3000);
+  // Preis-Range
+  const highs  = raw.map(c => c.h || c.high);
+  const lows   = raw.map(c => c.l || c.low);
+  const closes = raw.map(c => c.c || c.close);
+  const opens  = raw.map(c => c.o || c.open);
+  const vols   = raw.map(c => c.v || c.tick_volume || 0);
+  const mn = Math.min(...lows)  * 0.9998;
+  const mx = Math.max(...highs) * 1.0002;
+  const rng = mx - mn || 1;
+  const toY  = v => CH * (1 - (v - mn) / rng);
+  const maxV = Math.max(...vols) || 1;
+  const toVY = v => H - 1 - (v / maxV) * (VOL_H - 2);
 
-// ── In-flight counter ────────────────────────────────────
-let ifl = 11;
-setInterval(() => {
-  ifl = 8 + Math.floor(Math.random() * 6);
-  document.getElementById('inflight').textContent = ifl;
-}, 2500);
+  const n  = raw.length;
+  const cw = (W - 8) / n;
+  const bw = Math.max(1, cw * 0.7);
+  const xc = i => 4 + i * cw + cw / 2;
 
-// ── Exec bar animation ───────────────────────────────────
-let execPct = 80;
-let execDir = 1;
-setInterval(() => {
-  execPct += execDir * (2 + Math.random() * 3);
-  if (execPct >= 100) { execPct = 100; execDir = -1; }
-  if (execPct <= 5)   { execPct = 5;   execDir = 1; }
-  document.getElementById('execBar').style.width = execPct + '%';
-}, 1200);
+  // Hintergrund
+  chartCtx.fillStyle = '#04090f';
+  chartCtx.fillRect(0, 0, W, H);
 
-// ── Decision tree live values ────────────────────────────
-setInterval(() => {
-  const pct = (88 + Math.random() * 8).toFixed(1);
-  document.getElementById('rootPct').textContent = pct + '%';
-  const earn = 3000 + Math.round(Math.random() * 2000);
-  document.getElementById('leaf1').textContent = '+$' + earn.toLocaleString();
-  const loss = Math.round(50 + Math.random() * 200);
-  document.getElementById('leaf3').textContent = '-$' + loss;
-  const total = (1.2 + Math.random() * 0.5).toFixed(3);
-  document.getElementById('totalSide').textContent = 'TOTAL: +$' + total + 'B';
-}, 2000);
-
-// ── Candlestick chart ────────────────────────────────────
-(function() {
-  const canvas = document.getElementById('candleChart');
-  const ctx = canvas.getContext('2d');
-
-  const candles = [];
-  let price = 77000;
-  for (let i = 0; i < 30; i++) {
-    const open = price;
-    const move = (Math.random() - 0.48) * 600;
-    const close = open + move;
-    const high = Math.max(open, close) + Math.random() * 200;
-    const low  = Math.min(open, close) - Math.random() * 200;
-    candles.push({ open, close, high, low });
-    price = close;
+  // Grid-Linien
+  chartCtx.strokeStyle = '#0d1e30';
+  chartCtx.lineWidth = 1;
+  for (let g = 0; g <= 4; g++) {
+    const y = (CH / 4) * g;
+    chartCtx.beginPath(); chartCtx.moveTo(0, y); chartCtx.lineTo(W, y); chartCtx.stroke();
   }
 
-  function drawCandles() {
-    const W = canvas.offsetWidth;
-    const H = canvas.offsetHeight;
-    canvas.width  = W;
-    canvas.height = H;
-
-    const prices = candles.flatMap(c => [c.high, c.low]);
-    const mn = Math.min(...prices);
-    const mx = Math.max(...prices);
-    const range = mx - mn || 1;
-
-    const pad = 4;
-    const cw  = (W - pad*2) / candles.length;
-
-    const toY = v => H - pad - ((v - mn) / range) * (H - pad*2);
-
-    // Background grid
-    ctx.strokeStyle = '#0d1e30';
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= 4; i++) {
-      const y = pad + (i/4) * (H - pad*2);
-      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
-    }
-
-    candles.forEach((c, i) => {
-      const x = pad + i * cw + cw * 0.1;
-      const w = cw * 0.8;
-      const isGreen = c.close >= c.open;
-      const col = isGreen ? '#00d97e' : '#ff3a3a';
-
-      // Wick
-      ctx.strokeStyle = col;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(x + w/2, toY(c.high));
-      ctx.lineTo(x + w/2, toY(c.low));
-      ctx.stroke();
-
-      // Body
-      ctx.fillStyle = col;
-      const y1 = toY(Math.max(c.open, c.close));
-      const y2 = toY(Math.min(c.open, c.close));
-      ctx.fillRect(x, y1, w, Math.max(y2-y1, 1));
+  // EMA 20 + EMA 50 Linien
+  if (closes.length >= 50) {
+    const e20 = emaArr(closes, 20);
+    const e50 = emaArr(closes, 50);
+    [[e20, '#ffd200', 1], [e50, '#1e90ff', 1]].forEach(([arr, col, lw]) => {
+      chartCtx.strokeStyle = col;
+      chartCtx.lineWidth   = lw;
+      chartCtx.globalAlpha = 0.8;
+      chartCtx.beginPath();
+      arr.forEach((v, i) => {
+        const y = toY(v);
+        i === 0 ? chartCtx.moveTo(xc(i), y) : chartCtx.lineTo(xc(i), y);
+      });
+      chartCtx.stroke();
+      chartCtx.globalAlpha = 1;
     });
-
-    // Current price line
-    const last = candles[candles.length-1].close;
-    ctx.strokeStyle = '#ffd200';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([3,3]);
-    ctx.beginPath();
-    ctx.moveTo(0, toY(last));
-    ctx.lineTo(W, toY(last));
-    ctx.stroke();
-    ctx.setLineDash([]);
   }
 
-  drawCandles();
+  // Kerzen zeichnen
+  raw.forEach((c, i) => {
+    const o = c.o || c.open, h = c.h || c.high;
+    const l = c.l || c.low,  cl = c.c || c.close;
+    const bull = cl >= o;
+    const col  = bull ? '#00d97e' : '#ff3a3a';
+    const x    = xc(i);
 
-  // Add new candle periodically
-  setInterval(() => {
-    const last = candles[candles.length-1].close;
-    const open = last;
-    const move = (Math.random() - 0.48) * 400;
-    const close = open + move;
-    candles.push({
-      open, close,
-      high: Math.max(open,close) + Math.random()*150,
-      low:  Math.min(open,close) - Math.random()*150
-    });
-    if (candles.length > 40) candles.shift();
-    drawCandles();
-  }, 2000);
+    // Docht
+    chartCtx.strokeStyle = bull ? '#00a855' : '#cc2222';
+    chartCtx.lineWidth = 1;
+    chartCtx.beginPath();
+    chartCtx.moveTo(x, toY(h));
+    chartCtx.lineTo(x, toY(l));
+    chartCtx.stroke();
 
-  window.addEventListener('resize', drawCandles);
-})();
+    // Koerper
+    const y1 = toY(Math.max(o, cl));
+    const y2 = toY(Math.min(o, cl));
+    const bh = Math.max(y2 - y1, 1);
+    chartCtx.fillStyle = col;
+    chartCtx.fillRect(x - bw/2, y1, bw, bh);
+
+    // Volumen-Balken
+    const vy = toVY(vols[i]);
+    chartCtx.fillStyle = (bull ? '#00d97e' : '#ff3a3a') + '55';
+    chartCtx.fillRect(x - bw/2, vy, bw, H - 1 - vy);
+  });
+
+  // Aktueller Preis (gestrichelte Linie + Label)
+  const lastClose = closes[closes.length - 1];
+  const priceY    = toY(lastClose);
+  chartCtx.strokeStyle = '#ffd200';
+  chartCtx.lineWidth   = 1;
+  chartCtx.setLineDash([3, 3]);
+  chartCtx.beginPath();
+  chartCtx.moveTo(0, priceY);
+  chartCtx.lineTo(W - 52, priceY);
+  chartCtx.stroke();
+  chartCtx.setLineDash([]);
+
+  // Preis-Label rechts
+  chartCtx.fillStyle   = '#ffd200';
+  chartCtx.fillRect(W - 50, priceY - 7, 50, 14);
+  chartCtx.fillStyle   = '#000';
+  chartCtx.font        = 'bold 8px Courier New';
+  chartCtx.textAlign   = 'center';
+  chartCtx.fillText(lastClose.toFixed(2), W - 25, priceY + 3);
+  chartCtx.textAlign   = 'left';
+
+  // Preis-Achse (3 Levels)
+  chartCtx.fillStyle = '#5a7a90';
+  chartCtx.font      = '7px Courier New';
+  [0.25, 0.5, 0.75].forEach(p => {
+    const price = mn + rng * (1 - p);
+    const y     = CH * p;
+    chartCtx.fillText(price.toFixed(1), 2, y - 1);
+  });
+}
+
+function drawSimChart() {
+  if (botConnected && chartData.length > 5) { drawChart(chartData); return; }
+  // Simulation wenn Bot offline
+  const sim = [];
+  let p = 3280;
+  for (let i = 0; i < 60; i++) {
+    const o = p, m = (Math.random() - 0.48) * 3;
+    const c = o + m;
+    sim.push({ o, h: Math.max(o,c)+Math.random()*1.2,
+               l: Math.min(o,c)-Math.random()*1.2, c, v: Math.floor(Math.random()*3000+500) });
+    p = c;
+  }
+  drawChart(sim);
+}
+
+drawSimChart();
+setInterval(() => { if (!botConnected) drawSimChart(); }, 3000);
+window.addEventListener('resize', () => botConnected ? drawChart(chartData) : drawSimChart());
 
 // ── Robustness Matrix ────────────────────────────────────
 (function() {
