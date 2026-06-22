@@ -48,6 +48,8 @@ STRATEGIES = [
      "rsi_low_s": 35, "rsi_high_s": 60, "need_pattern": False, "sl_mult": 1.5, "tp_mult": 2.5, "min_score": 8,  "break_even_at": 1.0},
     {"name": "MOMENTUM",   "strategy_type": "MOMENTUM",   "adx_min": 22, "rsi_low_b": 38, "rsi_high_b": 68,
      "rsi_low_s": 32, "rsi_high_s": 62, "need_pattern": False, "sl_mult": 1.2, "tp_mult": 2.0, "min_score": 8,  "break_even_at": 0.8},
+    {"name": "ENSEMBLE",   "strategy_type": "ENSEMBLE",   "adx_min": 22, "rsi_low_b": 40, "rsi_high_b": 65,
+     "rsi_low_s": 35, "rsi_high_s": 60, "need_pattern": False, "sl_mult": 1.5, "tp_mult": 2.5, "min_score": 8, "break_even_at": 1.0},
 ]
 
 
@@ -120,6 +122,8 @@ def load_mt5_candles(n=2000):
 # Wert: Punkte die dieser Indikator pro Bestätigung beiträgt
 #
 STRATEGY_WEIGHTS = {
+    # Ensemble: Durchschnitt aller Strategien — robustester Einstieg
+    "ENSEMBLE":    dict(ema=2, adx=1, rsi=2, macd=2, bb=3, stoch=3, vwap=2, fib=2, ob=2, fvg=2, struct=1, pat=1),
     # Ausgewogene Kombination aller Indikatoren (Standard)
     "BALANCED":    dict(ema=2, adx=1, rsi=1, macd=1, bb=2, stoch=2, vwap=1, fib=2, ob=2, fvg=1, struct=1, pat=1),
     # Bollinger-Band Scalping: kaufen am unteren Band, verkaufen am oberen
@@ -153,7 +157,7 @@ BEAR_PAT = {"Shooting Star","Hanging Man","Gravestone Doji","Bearish Engulfing",
             "Dark Cloud Cover","Evening Star","Three Black Crows","Tweezer Top"}
 
 
-def get_signal_with_strategy(candles, strat):
+def _core_signal(candles, strat):
     """
     Confluence-Score-Signal mit strategie-spezifischer Indikator-Gewichtung.
     Jeder Strategie-Typ (BALANCED, BB_SCALP, FIB_SWING, ICT_SMC, VWAP_TREND,
@@ -268,6 +272,46 @@ def get_signal_with_strategy(candles, strat):
     if sell_score >= min_score and sell_score > buy_score  + 2:
         return "SELL", indicators
     return None, indicators
+
+
+def _ensemble_signal_backtest(candles, strat):
+    """Backtest-Ensemble: signal nur wenn ≥4 von 7 Strategien einig sind."""
+    votes_buy = votes_sell = 0
+    best_ind = {}
+    best_sc = 0
+    for stype, W in STRATEGY_WEIGHTS.items():
+        if stype == "ENSEMBLE":
+            continue
+        sub_strat = dict(strat)
+        sub_strat["strategy_type"] = stype
+        sig, ind = _core_signal(candles, sub_strat)
+        if sig == "BUY":
+            votes_buy += 1
+            if ind.get("buy_score", 0) > best_sc:
+                best_sc = ind.get("buy_score", 0)
+                best_ind = ind
+        elif sig == "SELL":
+            votes_sell += 1
+            if ind.get("sell_score", 0) > best_sc:
+                best_sc = ind.get("sell_score", 0)
+                best_ind = ind
+    total = len(STRATEGY_WEIGHTS) - 1
+    threshold = max(total // 2 + 1, 3)
+    if votes_buy >= threshold:
+        return "BUY", best_ind
+    if votes_sell >= threshold:
+        return "SELL", best_ind
+    return None, best_ind
+
+
+def get_signal_with_strategy(candles, strat):
+    """Thin wrapper: routes to ensemble or core signal logic."""
+    stype = strat.get("strategy_type", "BALANCED")
+    W     = STRATEGY_WEIGHTS.get(stype, STRATEGY_WEIGHTS["BALANCED"])
+    # ENSEMBLE: alle Strategien abstimmen lassen (Mehrheitsvotum)
+    if stype == "ENSEMBLE":
+        return _ensemble_signal_backtest(candles, strat)
+    return _core_signal(candles, strat)
 
 
 # ── BACKTEST SIMULATION ───────────────────────────────────────────────────────
@@ -492,8 +536,51 @@ def print_results(results):
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 
+def print_compare(results, candles_count):
+    print("\n" + "=" * 72)
+    print(f"  STRATEGIE VERGLEICH — {SYMBOL}")
+    print("=" * 72)
+    print(f"  {'STRATEGIE':<12} {'TRADES':>6} {'WR':>7} {'PF':>6} {'RETURN':>9} {'DD':>6} {'SCORE':>8}")
+    print("  " + "-" * 60)
+
+    scored = []
+    for s in results["strategies"]:
+        m = s["metrics"]
+        if "error" in m or m.get("total_trades", 0) == 0:
+            sc = -999
+        else:
+            wr = m["win_rate"] / 100
+            dd_pen = 1 - (m["max_drawdown"] / 100)
+            import math as _math
+            pf_bonus = min((m["profit_factor"] - 1.0) / 2.0, 1.0)
+            trade_q = _math.log(m["total_trades"] + 1) / 6
+            sc = round((wr**2 * 0.35 + max(m["return_pct"], 0) * 0.20 +
+                        max(m["sharpe"], 0) * 0.20 + pf_bonus * 0.15 +
+                        trade_q * 0.10) * dd_pen, 4)
+        scored.append((s, sc))
+
+    scored.sort(key=lambda x: x[1], reverse=True)
+    for s, sc in scored:
+        m = s["metrics"]
+        if "error" in m:
+            print(f"  {s['name']:<12}  {m.get('error', 'Fehler')}")
+            continue
+        ret_sign = "+" if m["return_pct"] >= 0 else ""
+        print(
+            f"  {s['name']:<12} "
+            f"{m['total_trades']:>6} "
+            f"{m['win_rate']:>6.1f}% "
+            f"{m['profit_factor']:>6.2f} "
+            f"{ret_sign}{m['return_pct']:>8.1f}% "
+            f"{m['max_drawdown']:>5.1f}% "
+            f"{sc:>8.4f}"
+        )
+    print("=" * 72 + "\n")
+
+
 def main():
     use_mt5  = "--mt5" in sys.argv
+    compare  = "--compare" in sys.argv
     n_str    = next((sys.argv[sys.argv.index("--candles") + 1]
                      for i, a in enumerate(sys.argv) if a == "--candles"), None)
     n_candles = int(n_str) if n_str else 2000
@@ -533,7 +620,10 @@ def main():
         else:
             print(metrics["error"])
 
-    print_results(results)
+    if compare:
+        print_compare(results, len(candles))
+    else:
+        print_results(results)
 
     # JSON speichern (ohne equity_curve fuer lesbareres JSON)
     results_slim = json.loads(json.dumps(results))

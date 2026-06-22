@@ -147,8 +147,12 @@ def random_trial(seed=None):
 # ── AUSGABE ───────────────────────────────────────────────────────────────────
 
 def print_top(results, n=10):
+    n_random = sum(1 for r in results if str(r["strat"].get("name", "")).startswith("R-"))
+    n_evo    = sum(1 for r in results if str(r["strat"].get("name", "")).startswith("E-"))
+    total_r  = len(results)
     print("\n" + "=" * 80)
     print(f"  TOP {n} STRATEGIEN  |  {SYMBOL}  |  Auto-Optimizer Ergebnisse")
+    print(f"  Phase: [Phase 1 Zufällig: {n_random} | Phase 2 Evolution: {n_evo} | Gesamt: {total_r}]")
     print("=" * 80)
     print(f"  {'#':>2}  {'STRATEGIE':>11}  {'ADX':>4}  {'SL':>4}  {'TP':>4}  "
           f"{'SC':>3}  {'TRADES':>6}  {'WR':>7}  {'PF':>5}  {'RETURN':>8}  {'SCORE':>7}")
@@ -215,6 +219,39 @@ def apply_best_params(best_strat):
     return params
 
 
+def mutate_strategy(parent, mutation_rate=0.3):
+    """Mutation: ändert zufällig einige Parameter eines guten Elternteils."""
+    child = dict(parent)
+    child["name"] = "mutant"
+    for key, choices in SEARCH_SPACE.items():
+        if random.random() < mutation_rate:
+            child[key] = random.choice(choices)
+    # Konsistenz-Checks
+    if child["tp_mult"] < child["sl_mult"] * 1.5:
+        child["tp_mult"] = child["sl_mult"] * 2.0
+    if child["rsi_high_b"] <= child["rsi_low_b"] + 10:
+        child["rsi_high_b"] = child["rsi_low_b"] + 15
+    if child["rsi_high_s"] <= child["rsi_low_s"] + 10:
+        child["rsi_high_s"] = child["rsi_low_s"] + 15
+    return child
+
+
+def crossover_strategy(p1, p2):
+    """Kreuzung: kombiniert Gene zweier guter Strategien (uniform crossover)."""
+    child = {}
+    for key in SEARCH_SPACE:
+        child[key] = p1[key] if random.random() < 0.5 else p2.get(key, p1[key])
+    child["name"] = "crossover"
+    # Konsistenz-Checks
+    if child["tp_mult"] < child["sl_mult"] * 1.5:
+        child["tp_mult"] = child["sl_mult"] * 2.0
+    if child["rsi_high_b"] <= child["rsi_low_b"] + 10:
+        child["rsi_high_b"] = child["rsi_low_b"] + 15
+    if child["rsi_high_s"] <= child["rsi_low_s"] + 10:
+        child["rsi_high_s"] = child["rsi_low_s"] + 15
+    return child
+
+
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -240,32 +277,52 @@ def main():
     print(f"  Starte {n_trials} Optimierungs-Versuche...\n")
 
     results   = []
-    best_score = -999
     t_start   = time.time()
     valid     = 0
 
-    for trial in range(n_trials):
-        strat = random_trial(seed=trial * 7 + 13)
-        strat["name"] = f"Trial-{trial+1}"
+    # Phase 1: Zufällige Suche (70% der Versuche)
+    n_random = int(n_trials * 0.70)
+    n_evolve = n_trials - n_random
 
+    print(f"  Phase 1: {n_random} Zufalls-Versuche...")
+    for trial in range(n_random):
+        strat = random_trial(seed=trial * 7 + 13)
+        strat["name"] = f"R-{trial+1}"
         m = walk_forward_score(candles, strat)
         s = score(m)
-
         if s > -999:
             valid += 1
             results.append({"strat": strat, "metrics": m, "score": s})
-            if s > best_score:
-                best_score = s
-                best_strat = strat
-
-        # Fortschrittsanzeige alle 25 Trials
         if (trial + 1) % 25 == 0:
             elapsed = time.time() - t_start
-            eta     = elapsed / (trial + 1) * (n_trials - trial - 1)
-            best_r  = max((r["metrics"]["return_pct"] for r in results), default=0)
-            print(f"  [{trial+1:>4}/{n_trials}]  Gueltig: {valid:>4}  "
-                  f"Bester Return: {best_r:>+.1f}%  "
-                  f"ETA: {int(eta)}s")
+            eta = elapsed / (trial + 1) * (n_trials - trial - 1)
+            best_r = max((r["metrics"]["return_pct"] for r in results), default=0)
+            print(f"  [{trial+1:>4}/{n_trials}]  Gueltig: {valid:>4}  Bester Return: {best_r:>+.1f}%  ETA: {int(eta)}s")
+
+    # Phase 2: Evolutionäre Verbesserung (30% der Versuche)
+    results.sort(key=lambda x: x["score"], reverse=True)
+    elite = results[:max(len(results) // 5, 5)]  # top 20% als Eltern
+    if elite and n_evolve > 0:
+        print(f"\n  Phase 2: {n_evolve} Evolutionäre Versuche (Mutation + Kreuzung der Top {len(elite)})...")
+        for evo in range(n_evolve):
+            parent = random.choice(elite)["strat"]
+            if evo % 3 == 0 and len(elite) >= 2:
+                # Kreuzung: kombiniere zwei Eltern
+                p2 = random.choice(elite)["strat"]
+                strat = crossover_strategy(parent, p2)
+            else:
+                # Mutation: variiere einen Elternteil
+                strat = mutate_strategy(parent)
+            strat["name"] = f"E-{evo+1}"
+            m = walk_forward_score(candles, strat)
+            s = score(m)
+            if s > -999:
+                valid += 1
+                results.append({"strat": strat, "metrics": m, "score": s})
+            if (evo + 1) % 10 == 0:
+                results.sort(key=lambda x: x["score"], reverse=True)
+                best_r = max((r["metrics"]["return_pct"] for r in results), default=0)
+                print(f"  [EVO {evo+1:>3}/{n_evolve}]  Gueltig: {valid:>4}  Bester Return: {best_r:>+.1f}%")
 
     # Sortieren nach Score
     results.sort(key=lambda x: x["score"], reverse=True)
