@@ -91,6 +91,29 @@ _learn = {
 _last_trade_count = 0
 
 
+def load_best_params():
+    """Laedt optimierte Parameter aus best_params.json (falls vorhanden)."""
+    try:
+        import os
+        path = os.path.join(os.path.dirname(__file__), "best_params.json")
+        if not os.path.exists(path):
+            return
+        with open(path, "r") as f:
+            p = json.load(f)
+        _learn["adx_threshold"] = p.get("adx_threshold", ADX_MIN)
+        _learn["rsi_low_buy"]   = p.get("rsi_low_buy",   40)
+        _learn["rsi_high_buy"]  = p.get("rsi_high_buy",  65)
+        _learn["rsi_low_sell"]  = p.get("rsi_low_sell",  35)
+        _learn["rsi_high_sell"] = p.get("rsi_high_sell", 60)
+        print(f"[OPT] Optimierte Parameter geladen: ADX={p['adx_threshold']} "
+              f"RSI-B={p['rsi_low_buy']}-{p['rsi_high_buy']}")
+    except Exception as e:
+        print(f"[WARN] best_params.json konnte nicht geladen werden: {e}")
+
+
+load_best_params()
+
+
 # ── SHARED STATE ──────────────────────────────────────────────────────────────
 _lock = threading.Lock()
 _state = {
