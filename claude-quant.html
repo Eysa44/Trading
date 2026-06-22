@@ -342,6 +342,25 @@ body {
   text-align: center;
 }
 .step-tooltip.show { opacity: 1; }
+
+/* ── LEARNING PANEL ─────────────────────────────── */
+.learn-section {
+  border-bottom: 1px solid var(--border);
+  padding: 8px;
+}
+.learn-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+  margin-bottom: 6px;
+}
+.learn-row { display: flex; justify-content: space-between; align-items: center; }
+.learn-lbl { color: var(--dim); font-size: 9px; letter-spacing: .5px; }
+.learn-val { font-size: 10px; font-weight: bold; color: var(--text); }
+.learn-adj { font-size: 9px; color: var(--yellow); margin-bottom: 4px; word-break: break-word; }
+.learn-tbl { width: 100%; border-collapse: collapse; font-size: 9px; }
+.learn-tbl th { color: var(--dim); font-weight: normal; text-align: left; padding: 1px 4px; border-bottom: 1px solid var(--border); }
+.learn-tbl td { padding: 1px 4px; color: var(--text); }
 </style>
 </head>
 <body>
@@ -428,6 +447,39 @@ body {
     <div class="step" id="stepSettle"       onclick="showStepInfo('SETTLE')">SETTLE</div>
   </div>
   <div class="exec-bar"><div class="exec-bar-fill" id="execBar" style="width:80%"></div></div>
+</div>
+
+<!-- ── SELF-LEARNING STATUS ─────────────────────────────── -->
+<div class="learn-section">
+  <div class="section-title">
+    <span>SELF-LEARNING STATUS</span>
+    <span id="learnMode" style="color:var(--green)">SELF-LEARN</span>
+  </div>
+  <div class="learn-grid">
+    <div class="learn-row">
+      <span class="learn-lbl">ADX THRESHOLD</span>
+      <span class="learn-val" id="learnAdx">25</span>
+    </div>
+    <div class="learn-row">
+      <span class="learn-lbl">KELLY f*</span>
+      <span class="learn-val" id="learnKelly">—</span>
+    </div>
+    <div class="learn-row">
+      <span class="learn-lbl">RECENT WIN RATE</span>
+      <span class="learn-val" id="learnWr">— (0 Trades)</span>
+    </div>
+    <div class="learn-row">
+      <span class="learn-lbl">BLOCKED PATTERNS</span>
+      <span class="learn-val" id="learnBlocked" style="color:var(--green)">keine</span>
+    </div>
+  </div>
+  <div class="learn-adj">LAST ADJUST: <span id="learnAdj">Noch keine Anpassung</span></div>
+  <table class="learn-tbl">
+    <thead><tr><th>PATTERN</th><th>TRADES</th><th>WIN RATE</th></tr></thead>
+    <tbody id="learnPatterns">
+      <tr><td colspan="3" style="color:var(--dim)">Bot verbinden um Pattern-Stats zu sehen</td></tr>
+    </tbody>
+  </table>
 </div>
 
 <!-- ── STRATEGY DECISION TREE ──────────────────────────── -->
@@ -599,6 +651,28 @@ function exportData() {
     csv += 'Time,' + d.last_signal.time + '\n\n';
   }
 
+  if (d && d.learn) {
+    const lrn = d.learn;
+    csv += 'SELF-LEARNING\n';
+    csv += 'Mode,' + lrn.mode + '\n';
+    csv += 'ADX Threshold,' + lrn.adx_threshold + '\n';
+    csv += 'RSI Buy Range,' + lrn.rsi_low_buy + '-' + lrn.rsi_high_buy + '\n';
+    csv += 'RSI Sell Range,' + lrn.rsi_low_sell + '-' + lrn.rsi_high_sell + '\n';
+    csv += 'Recent Win Rate,' + lrn.recent_wr + '%\n';
+    csv += 'Recent Trades,' + lrn.recent_trades + '\n';
+    csv += 'Total Adjustments,' + lrn.adjustments + '\n';
+    csv += 'Kelly f*,' + (lrn.kelly_f * 100).toFixed(2) + '%\n';
+    csv += 'Last Adjustment,' + lrn.last_adjust + '\n';
+    csv += 'Blocked Patterns,' + (lrn.blocked_patterns || []).join('; ') + '\n\n';
+    if (lrn.pattern_stats) {
+      csv += 'PATTERN STATISTICS\nPattern,Trades,Wins,Win Rate\n';
+      Object.entries(lrn.pattern_stats).forEach(([p, s]) => {
+        csv += p + ',' + s.total + ',' + s.wins + ',' + (s.wr||0).toFixed(1) + '%\n';
+      });
+      csv += '\n';
+    }
+  }
+
   if (!d) {
     csv += 'NOTE: Bot offline - simulation data only\n';
     csv += 'Portfolio Value,' + document.getElementById('pfValue').textContent + '\n';
@@ -634,6 +708,12 @@ function setMode(mode) {
     if (el) el.classList.toggle('tag-active', m === mode);
   });
   toast(modeInfo[mode] || mode, mode === 'SELF-LEARN' ? 'var(--green)' : 'var(--orange)');
+  if (botConnected) {
+    fetch(BOT_API.replace('/data', '/mode?set=' + mode), { signal: AbortSignal.timeout(2000) })
+      .then(r => r.json())
+      .then(j => { if (j.ok) toast('Bot: Modus ' + mode + ' aktiviert', 'var(--green)'); })
+      .catch(() => toast('Bot nicht erreichbar', 'var(--red)'));
+  }
 }
 
 // ── EXECUTION STEP INFO ──────────────────────────────────────
@@ -760,6 +840,56 @@ function applyRealData(d) {
   // Win rate
   if (st.win_rate !== undefined) {
     document.querySelectorAll('.stat-val.g')[0].textContent = st.win_rate + '%';
+  }
+
+  // Sync mode buttons from bot state
+  if (d.learn && d.learn.mode) {
+    currentMode = d.learn.mode;
+    Object.entries(modeIds).forEach(([m, id]) => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('tag-active', m === d.learn.mode);
+    });
+  }
+
+  // Learning panel
+  if (d.learn) {
+    const lrn = d.learn;
+    const adxEl = document.getElementById('learnAdx');
+    const wrEl  = document.getElementById('learnWr');
+    const adjEl = document.getElementById('learnAdj');
+    const kfEl  = document.getElementById('learnKelly');
+    const blEl  = document.getElementById('learnBlocked');
+    const ptEl  = document.getElementById('learnPatterns');
+    const modeEl= document.getElementById('learnMode');
+    if (adxEl) adxEl.textContent = (lrn.adx_threshold || 25).toFixed(0);
+    if (wrEl)  wrEl.textContent  = (lrn.recent_wr || 0).toFixed(1) + '% (' + (lrn.recent_trades||0) + ' Trades)';
+    if (adjEl) adjEl.textContent = lrn.last_adjust || 'Noch keine';
+    if (kfEl) {
+      const kf = (lrn.kelly_f || 0) * 100;
+      kfEl.textContent = kf.toFixed(2) + '%';
+      kfEl.style.color = kf > 0 ? 'var(--green)' : 'var(--dim)';
+    }
+    if (modeEl) {
+      modeEl.textContent = lrn.mode || 'SELF-LEARN';
+      modeEl.style.color = lrn.mode === 'SELF-LEARN' ? 'var(--green)' : 'var(--orange)';
+    }
+    if (blEl) {
+      const blocked = lrn.blocked_patterns || [];
+      blEl.textContent = blocked.length ? blocked.join(', ') : 'keine';
+      blEl.style.color = blocked.length ? 'var(--red)' : 'var(--green)';
+    }
+    if (ptEl && lrn.pattern_stats) {
+      const stats = lrn.pattern_stats;
+      const rows = Object.entries(stats)
+        .sort((a,b) => (b[1].wr||0) - (a[1].wr||0))
+        .slice(0, 5)
+        .map(([pat, s]) => {
+          const wr = (s.wr || 0).toFixed(0);
+          const col = s.wr >= 60 ? 'var(--green)' : s.wr >= 40 ? 'var(--yellow)' : 'var(--red)';
+          return `<tr><td>${pat}</td><td>${s.total||0}</td><td style="color:${col}">${wr}%</td></tr>`;
+        }).join('');
+      ptEl.innerHTML = rows || '<tr><td colspan="3" style="color:var(--dim)">Noch keine Trades</td></tr>';
+    }
   }
 
   // Live/connected indicator
