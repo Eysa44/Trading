@@ -137,9 +137,20 @@ _state = {
 }
 
 
+class _SafeEncoder(json.JSONEncoder):
+    """Handles numpy scalars that MT5 returns in structured arrays."""
+    def default(self, obj):
+        try:
+            if hasattr(obj, 'item'):      # numpy scalar → Python native
+                return obj.item()
+        except Exception:
+            pass
+        return super().default(obj)
+
+
 def state_get():
     with _lock:
-        return json.loads(json.dumps(_state))
+        return json.loads(json.dumps(_state, cls=_SafeEncoder))
 
 
 def state_set(key, value):
@@ -596,12 +607,12 @@ def fibonacci_levels(rates, lookback=55):
     w = list(rates[-lookback:]) if len(rates) >= lookback else list(rates)
     if len(w) < 10:
         return None
-    sh = max(r["high"]  for r in w)
-    sl = min(r["low"]   for r in w)
-    diff = sh - sl
+    sh    = float(max(r["high"] for r in w))
+    sl    = float(min(r["low"]  for r in w))
+    diff  = sh - sl
     if diff < 0.5:
         return None
-    price = rates[-1]["close"]
+    price = float(rates[-1]["close"])
     lvls  = {
         "0.0":   sh,
         "23.6":  sh - 0.236 * diff,
@@ -616,11 +627,11 @@ def fibonacci_levels(rates, lookback=55):
     return {
         "swing_high":    round(sh, 2),
         "swing_low":     round(sl, 2),
-        "levels":        {k: round(v, 2) for k, v in lvls.items()},
+        "levels":        {k: round(float(v), 2) for k, v in lvls.items()},
         "nearest":       near[0],
-        "nearest_price": round(near[1], 2),
-        "dist_pct":      round(dist, 2),
-        "near_key":      dist < 0.25,
+        "nearest_price": round(float(near[1]), 2),
+        "dist_pct":      round(float(dist), 2),
+        "near_key":      bool(dist < 0.25),
     }
 
 
