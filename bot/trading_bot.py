@@ -308,6 +308,19 @@ def get_contract_size(symbol):
     return CONTRACT_SIZES.get(symbol, 100000)
 
 
+def pip_value(symbol):
+    """Gibt den Pip-Wert fuer Spread/SL-Anzeige zurueck."""
+    if MT5_AVAILABLE:
+        info = mt5.symbol_info(symbol)
+        if info:
+            return info.point * 10
+    if "XAU" in symbol or "XAG" in symbol:
+        return 0.1
+    if "JPY" in symbol:
+        return 0.01
+    return 0.0001
+
+
 def calc_lot_selflearn(balance, sl_dist, symbol):
     """SELF-LEARN: 1% ATR-basiert, symbol-korrekt."""
     risk = balance * (RISK_PCT / 100)
