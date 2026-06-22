@@ -39,7 +39,7 @@ except ImportError:
     print("[WARN] MetaTrader5 nicht gefunden. pip install MetaTrader5")
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
-SYMBOL       = "EURUSD"
+SYMBOL       = "XAUUSD"    # Gold (XAU/USD)
 TIMEFRAME    = 16385       # mt5.TIMEFRAME_M15
 RISK_PCT     = 1.0         # % des Kontos (SELF-LEARN Modus)
 ATR_SL_MULT  = 1.5
@@ -58,6 +58,17 @@ MAGIC        = 234567
 CHECK_EVERY  = 15
 SERVER_PORT  = 5000
 LEARN_EVERY  = 10          # Trades zwischen Anpassungen
+
+# Contract sizes fuer Lot-Berechnung (Fallback wenn MT5 nicht verfuegbar)
+CONTRACT_SIZES = {
+    "XAUUSD": 100,         # 1 Lot = 100 Unzen Gold
+    "XAGUSD": 5000,
+    "EURUSD": 100000,
+    "GBPUSD": 100000,
+    "USDJPY": 100000,
+    "GBPJPY": 100000,
+    "BTCUSD": 1,
+}
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -288,14 +299,20 @@ def detect_candle_patterns(rates):
 
 # ── POSITION SIZING ───────────────────────────────────────────────────────────
 
-def pip_value(symbol):
-    return 0.0001 if "JPY" not in symbol else 0.01
+def get_contract_size(symbol):
+    """Gibt die Kontraktgroesse fuer ein Symbol zurueck."""
+    if MT5_AVAILABLE:
+        info = mt5.symbol_info(symbol)
+        if info:
+            return info.trade_contract_size
+    return CONTRACT_SIZES.get(symbol, 100000)
 
 
 def calc_lot_selflearn(balance, sl_dist, symbol):
-    """SELF-LEARN: 1% ATR-basiert."""
+    """SELF-LEARN: 1% ATR-basiert, symbol-korrekt."""
     risk = balance * (RISK_PCT / 100)
-    return round(max(risk / (sl_dist * 100000), 0.01), 2)
+    cs   = get_contract_size(symbol)
+    return round(max(risk / (sl_dist * cs), 0.01), 2)
 
 
 def calc_lot_kelly(balance, sl_dist, symbol):
@@ -305,20 +322,22 @@ def calc_lot_kelly(balance, sl_dist, symbol):
         wr = st.get("win_rate", 50.0)
     p = wr / 100
     q = 1 - p
-    b = ATR_TP_MULT / ATR_SL_MULT  # Basis-RR
+    b = ATR_TP_MULT / ATR_SL_MULT
     kelly_f = max(0.0, (p * b - q) / b) if b > 0 else 0.01
     kelly_f = min(kelly_f, 0.05)
     with _lock:
         _learn["kelly_f"] = round(kelly_f * 100, 2)
     risk = balance * kelly_f
-    return round(max(risk / (sl_dist * 100000), 0.01), 2)
+    cs   = get_contract_size(symbol)
+    return round(max(risk / (sl_dist * cs), 0.01), 2)
 
 
 def calc_lot_random(balance, sl_dist, symbol):
     """RANDOM: 0.25%–1.75% zufaelliges Risiko."""
     pct  = 0.25 + _random.random() * 1.5
     risk = balance * (pct / 100)
-    return round(max(risk / (sl_dist * 100000), 0.01), 2)
+    cs   = get_contract_size(symbol)
+    return round(max(risk / (sl_dist * cs), 0.01), 2)
 
 
 def get_lot(balance, sl_dist, symbol):
