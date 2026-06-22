@@ -1,34 +1,34 @@
 """
-CLAUDE + QUANT Trading Bot  v2.0
+CLAUDE + QUANT Trading Bot  v3.0  —  Full Feature Build
+=======================================================
+MODES (umschaltbar per Dashboard oder API):
+  SELF-LEARN  : ATR-basiertes Sizing + adaptive Schwellenwerte (lernt!)
+  KELLY       : Kelly Criterion Lot-Groesse (optimal basierend auf Win-Rate)
+  RANDOM      : Zufaelliges Sizing 0.25-1.75% (nur fuer Tests)
 
-STRATEGY STACK (Elite-Level):
-  Trend     : EMA 20 / 50 / 200  +  ADX > 25 (nur starke Trends)
-  Momentum  : RSI 14  +  MACD (12/26/9)
-  Volatility: ATR-14 basierter Stop-Loss (dynamisch, kein fixer Pip-Wert)
-  Confirm   : Candlestick Pattern Recognition (18 Patterns)
-  Structure : Market Structure (HH/HL fuer Long, LH/LL fuer Short)
-  Risk      : 1% per Trade, ATR x 1.5 SL, ATR x 3.0 TP (1:2 RR)
+SELF-LEARNING:
+  - Verfolgt Ergebnis jedes Candlestick-Patterns (Hammer, Engulfing, ...)
+  - Nach je 10 Trades: passt ADX-Schwelle + RSI-Bereich automatisch an
+  - Win-Rate < 38% -> Filter strenger (ADX hoch, RSI-Bereich enger)
+  - Win-Rate > 65% -> Filter lockerer (ADX runter, mehr Trades)
+  - Schlechteste Patterns werden ignoriert (WR < 30% nach 5+ Trades)
 
-CANDLESTICK PATTERNS erkannt:
-  Bullish: Hammer, Inverted Hammer, Bullish Engulfing, Morning Star,
-           Dragonfly Doji, Three White Soldiers, Piercing Line, Tweezer Bottom
-  Bearish: Shooting Star, Hanging Man, Bearish Engulfing, Evening Star,
-           Gravestone Doji, Three Black Crows, Dark Cloud Cover, Tweezer Top
-  Neutral: Doji, Spinning Top
+KELLY CRITERION:
+  - f* = (p*b - q) / b  (p=Win-Rate, b=Win/Loss-Ratio, q=1-p)
+  - Maximum 5% pro Trade fuer Sicherheit
+  - Passt sich automatisch an aktuelle Performance an
 
-EINSTIEGS-LOGIK (ALLE Bedingungen muessen erfuellt sein):
-  BUY  -> EMA20 > EMA50 > EMA200  AND  ADX > 25  AND  RSI 40-65
-          AND  MACD bullish  AND  Market Structure bullish
-          AND  Bullish Candle Pattern
-  SELL -> EMA20 < EMA50 < EMA200  AND  ADX > 25  AND  RSI 35-60
-          AND  MACD bearish  AND  Market Structure bearish
-          AND  Bearish Candle Pattern
+API ENDPOINTS:
+  GET /data        -> Alle Bot-Daten als JSON
+  GET /mode?set=X  -> Wechsle Modus (RANDOM | KELLY | SELF-LEARN)
 """
 
 import time
 import json
+import random as _random
 import threading
 from datetime import datetime, timezone
+from urllib.parse import urlparse, parse_qs
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 try:
@@ -36,63 +36,67 @@ try:
     MT5_AVAILABLE = True
 except ImportError:
     MT5_AVAILABLE = False
-    print("[WARN] MetaTrader5 nicht gefunden. Ausfuehren: pip install MetaTrader5")
+    print("[WARN] MetaTrader5 nicht gefunden. pip install MetaTrader5")
 
-# -- CONFIG -------------------------------------------------------------------
-SYMBOL        = "EURUSD"
-TIMEFRAME     = 16385      # mt5.TIMEFRAME_M15
-RISK_PCT      = 1.0        # % des Kontos pro Trade
-ATR_SL_MULT   = 1.5        # Stop-Loss = ATR x 1.5
-ATR_TP_MULT   = 3.0        # Take-Profit = ATR x 3.0  (1:2 RR)
-EMA_FAST      = 20
-EMA_MID       = 50
-EMA_SLOW      = 200
-MACD_FAST     = 12
-MACD_SLOW     = 26
-MACD_SIGNAL   = 9
-RSI_PERIOD    = 14
-ADX_PERIOD    = 14
-ADX_MIN       = 25         # Mindest-Trendstaerke
-ATR_PERIOD    = 14
-MAGIC         = 234567
-CHECK_EVERY   = 15         # Sekunden zwischen Signal-Checks
-SERVER_PORT   = 5000
-# -----------------------------------------------------------------------------
+# ── CONFIG ────────────────────────────────────────────────────────────────────
+SYMBOL       = "EURUSD"
+TIMEFRAME    = 16385       # mt5.TIMEFRAME_M15
+RISK_PCT     = 1.0         # % des Kontos (SELF-LEARN Modus)
+ATR_SL_MULT  = 1.5
+ATR_TP_MULT  = 3.0
+EMA_FAST     = 20
+EMA_MID      = 50
+EMA_SLOW     = 200
+MACD_FAST    = 12
+MACD_SLOW    = 26
+MACD_SIGNAL  = 9
+RSI_PERIOD   = 14
+ADX_PERIOD   = 14
+ADX_MIN      = 25
+ATR_PERIOD   = 14
+MAGIC        = 234567
+CHECK_EVERY  = 15
+SERVER_PORT  = 5000
+LEARN_EVERY  = 10          # Trades zwischen Anpassungen
+# ─────────────────────────────────────────────────────────────────────────────
 
 
-# -- SHARED STATE -------------------------------------------------------------
+# ── LEARNING STATE ────────────────────────────────────────────────────────────
+_learn = {
+    "mode":            "SELF-LEARN",
+    "adx_threshold":   ADX_MIN,
+    "rsi_low_buy":     40,
+    "rsi_high_buy":    65,
+    "rsi_low_sell":    35,
+    "rsi_high_sell":   60,
+    "adjustments":     0,
+    "last_adjust":     "Noch keine Anpassung",
+    "recent_wr":       0.0,
+    "recent_trades":   0,
+    "kelly_f":         0.0,
+    "blocked_patterns": [],
+    "pattern_stats":   {},
+}
+_last_trade_count = 0
+
+
+# ── SHARED STATE ──────────────────────────────────────────────────────────────
 _lock = threading.Lock()
 _state = {
-    "status":       "starting",
-    "connected":    False,
-    "symbol":       SYMBOL,
-    "account": {
-        "balance":  0,
-        "equity":   0,
-        "profit":   0,
-        "currency": "USD",
-        "leverage": 100,
-        "server":   "",
-        "name":     "",
-    },
-    "positions":    [],
-    "last_signal":  None,
-    "indicators":   {},
+    "status":         "starting",
+    "connected":      False,
+    "symbol":         SYMBOL,
+    "account":        {"balance": 0, "equity": 0, "profit": 0,
+                       "currency": "USD", "leverage": 100, "server": "", "name": ""},
+    "positions":      [],
+    "last_signal":    None,
+    "indicators":     {},
     "candle_pattern": None,
-    "stats": {
-        "trades_total": 0,
-        "trades_win":   0,
-        "win_rate":     0.0,
-        "total_profit": 0.0,
-        "biggest_win":  0.0,
-        "biggest_loss": 0.0,
-    },
-    "price": {
-        "bid":    0,
-        "ask":    0,
-        "spread": 0,
-    },
-    "last_update": "",
+    "stats":          {"trades_total": 0, "trades_win": 0, "win_rate": 0.0,
+                       "total_profit": 0.0, "biggest_win": 0.0, "biggest_loss": 0.0},
+    "price":          {"bid": 0, "ask": 0, "spread": 0},
+    "learn":          _learn,
+    "last_update":    "",
 }
 
 
@@ -107,7 +111,7 @@ def state_set(key, value):
         _state["last_update"] = datetime.now(timezone.utc).isoformat()
 
 
-# -- INDICATOR ENGINE ---------------------------------------------------------
+# ── INDICATOR ENGINE ──────────────────────────────────────────────────────────
 
 def ema_series(prices, period):
     k = 2 / (period + 1)
@@ -136,212 +140,304 @@ def rsi(closes, period=14):
 
 
 def macd(closes, fast=12, slow=26, signal=9):
-    ema_f = ema_series(closes, fast)
-    ema_s = ema_series(closes, slow)
-    macd_line = [f - s for f, s in zip(ema_f, ema_s)]
-    signal_line = ema_series(macd_line, signal)
-    histogram = [m - s for m, s in zip(macd_line, signal_line)]
-    return macd_line, signal_line, histogram
+    ef = ema_series(closes, fast)
+    es = ema_series(closes, slow)
+    ml = [f - s for f, s in zip(ef, es)]
+    sl = ema_series(ml, signal)
+    return ml, sl, [m - s for m, s in zip(ml, sl)]
 
 
 def atr(rates, period=14):
     trs = []
     for i in range(1, len(rates)):
-        h = rates[i]["high"]
-        l = rates[i]["low"]
-        pc = rates[i - 1]["close"]
+        h, l, pc = rates[i]["high"], rates[i]["low"], rates[i-1]["close"]
         trs.append(max(h - l, abs(h - pc), abs(l - pc)))
+    if not trs:
+        return 0.001
     if len(trs) < period:
-        return trs[-1] if trs else 0.001
-    atr_val = sum(trs[:period]) / period
+        return trs[-1]
+    v = sum(trs[:period]) / period
     for tr in trs[period:]:
-        atr_val = (atr_val * (period - 1) + tr) / period
-    return atr_val
+        v = (v * (period - 1) + tr) / period
+    return v
 
 
 def adx(rates, period=14):
     if len(rates) < period + 2:
         return 0.0
-    plus_dm, minus_dm, trs = [], [], []
+    pdm, mdm, trs = [], [], []
     for i in range(1, len(rates)):
-        h, l = rates[i]["high"], rates[i]["low"]
+        h, l   = rates[i]["high"],   rates[i]["low"]
         ph, pl = rates[i-1]["high"], rates[i-1]["low"]
-        pc = rates[i-1]["close"]
-        up   = h - ph
-        down = pl - l
-        plus_dm.append(up   if up > down and up > 0   else 0)
-        minus_dm.append(down if down > up and down > 0 else 0)
+        pc     = rates[i-1]["close"]
+        up, dn = h - ph, pl - l
+        pdm.append(up if up > dn and up > 0 else 0)
+        mdm.append(dn if dn > up and dn > 0 else 0)
         trs.append(max(h - l, abs(h - pc), abs(l - pc)))
 
     def smooth(arr, p):
-        s = sum(arr[:p])
-        result = [s]
-        for v in arr[p:]:
-            s = s - s / p + v
-            result.append(s)
-        return result
+        s = sum(arr[:p]); r = [s]
+        for v in arr[p:]: s = s - s/p + v; r.append(s)
+        return r
 
-    tr_s  = smooth(trs, period)
-    pdm_s = smooth(plus_dm, period)
-    mdm_s = smooth(minus_dm, period)
-
-    pdi = [100 * p / t if t else 0 for p, t in zip(pdm_s, tr_s)]
-    mdi = [100 * m / t if t else 0 for m, t in zip(mdm_s, tr_s)]
-    dx  = [100 * abs(p - m) / (p + m) if (p + m) else 0 for p, m in zip(pdi, mdi)]
-
+    tr_s = smooth(trs, period)
+    ps   = smooth(pdm, period)
+    ms   = smooth(mdm, period)
+    pdi  = [100*p/t if t else 0 for p, t in zip(ps, tr_s)]
+    mdi  = [100*m/t if t else 0 for m, t in zip(ms, tr_s)]
+    dx   = [100*abs(p-m)/(p+m) if (p+m) else 0 for p, m in zip(pdi, mdi)]
     if len(dx) < period:
-        return sum(dx) / len(dx)
-    adx_val = sum(dx[:period]) / period
+        return sum(dx) / len(dx) if dx else 0.0
+    v = sum(dx[:period]) / period
     for d in dx[period:]:
-        adx_val = (adx_val * (period - 1) + d) / period
-    return adx_val
+        v = (v * (period - 1) + d) / period
+    return v
 
 
 def market_structure(closes, lookback=10):
     if len(closes) < lookback * 2:
         return "neutral"
     mid = len(closes) // 2
-    first_half  = closes[:mid]
-    second_half = closes[mid:]
-    prev_high = max(first_half)
-    prev_low  = min(first_half)
-    curr_high = max(second_half)
-    curr_low  = min(second_half)
-    if curr_high > prev_high and curr_low > prev_low:
+    fh, sh = closes[:mid], closes[mid:]
+    if max(sh) > max(fh) and min(sh) > min(fh):
         return "bullish"
-    if curr_high < prev_high and curr_low < prev_low:
+    if max(sh) < max(fh) and min(sh) < min(fh):
         return "bearish"
     return "neutral"
 
 
-# -- CANDLESTICK PATTERN ENGINE -----------------------------------------------
+# ── CANDLESTICK PATTERN ENGINE ────────────────────────────────────────────────
 
-def candle_body(c):
-    return abs(c["close"] - c["open"])
-
-def candle_range(c):
-    return c["high"] - c["low"] or 0.00001
-
-def upper_shadow(c):
-    return c["high"] - max(c["open"], c["close"])
-
-def lower_shadow(c):
-    return min(c["open"], c["close"]) - c["low"]
-
-def is_bullish(c):
-    return c["close"] > c["open"]
-
-def is_bearish(c):
-    return c["close"] < c["open"]
+def _body(c):   return abs(c["close"] - c["open"])
+def _range(c):  return c["high"] - c["low"] or 0.00001
+def _us(c):     return c["high"] - max(c["open"], c["close"])
+def _ls(c):     return min(c["open"], c["close"]) - c["low"]
+def _bull(c):   return c["close"] > c["open"]
+def _bear(c):   return c["close"] < c["open"]
 
 
 def detect_candle_patterns(rates):
     if len(rates) < 3:
         return None, "neutral"
+    c0, c1, c2 = rates[-1], rates[-2], rates[-3]
+    b0, b1 = _body(c0), _body(c1)
+    r0     = _range(c0)
+    us0, ls0 = _us(c0), _ls(c0)
+    us1, ls1 = _us(c1), _ls(c1)
+    avg_b  = (b0 + b1 + _body(c2)) / 3
 
-    c0 = rates[-1]
-    c1 = rates[-2]
-    c2 = rates[-3]
-
-    body0  = candle_body(c0)
-    body1  = candle_body(c1)
-    range0 = candle_range(c0)
-    range1 = candle_range(c1)
-    us0    = upper_shadow(c0)
-    ls0    = lower_shadow(c0)
-    us1    = upper_shadow(c1)
-    ls1    = lower_shadow(c1)
-
-    avg_body = (candle_body(c0) + candle_body(c1) + candle_body(c2)) / 3
-
-    # BULLISCHE PATTERNS
-    if (is_bullish(c0) and ls0 >= body0 * 2 and us0 <= body0 * 0.3 and body0 < range0 * 0.4):
+    # Bullish
+    if _bull(c0) and ls0 >= b0*2 and us0 <= b0*0.3 and b0 < r0*0.4:
         return "Hammer", "bullish"
-
-    if (is_bullish(c0) and us0 >= body0 * 2 and ls0 <= body0 * 0.3 and body0 < range0 * 0.4):
+    if _bull(c0) and us0 >= b0*2 and ls0 <= b0*0.3 and b0 < r0*0.4:
         return "Inverted Hammer", "bullish"
-
-    if (body0 <= range0 * 0.05 and ls0 >= range0 * 0.6 and us0 <= range0 * 0.1):
+    if b0 <= r0*0.05 and ls0 >= r0*0.6 and us0 <= r0*0.1:
         return "Dragonfly Doji", "bullish"
-
-    if (is_bearish(c1) and is_bullish(c0) and
-            c0["open"] < c1["close"] and c0["close"] > c1["open"] and body0 > body1):
+    if (_bear(c1) and _bull(c0) and c0["open"] < c1["close"]
+            and c0["close"] > c1["open"] and b0 > b1):
         return "Bullish Engulfing", "bullish"
-
-    if (is_bearish(c1) and is_bullish(c0) and
-            c0["open"] < c1["low"] and
-            c0["close"] > (c1["open"] + c1["close"]) / 2 and
-            c0["close"] < c1["open"]):
+    if (_bear(c1) and _bull(c0) and c0["open"] < c1["low"]
+            and c0["close"] > (c1["open"]+c1["close"])/2
+            and c0["close"] < c1["open"]):
         return "Piercing Line", "bullish"
-
-    if (is_bearish(c2) and candle_body(c1) < avg_body * 0.3 and
-            is_bullish(c0) and c0["close"] > (c2["open"] + c2["close"]) / 2):
+    if (_bear(c2) and _body(c1) < avg_b*0.3 and _bull(c0)
+            and c0["close"] > (c2["open"]+c2["close"])/2):
         return "Morning Star", "bullish"
-
-    if (is_bullish(c0) and is_bullish(c1) and is_bullish(c2) and
-            c0["close"] > c1["close"] > c2["close"] and
-            c0["open"] > c1["open"] > c2["open"] and
-            us0 < body0 * 0.3 and us1 < body1 * 0.3):
+    if (_bull(c0) and _bull(c1) and _bull(c2)
+            and c0["close"] > c1["close"] > c2["close"]
+            and c0["open"]  > c1["open"]  > c2["open"]
+            and us0 < b0*0.3 and us1 < b1*0.3):
         return "Three White Soldiers", "bullish"
-
-    if (is_bearish(c1) and is_bullish(c0) and abs(c0["low"] - c1["low"]) < range0 * 0.05):
+    if _bear(c1) and _bull(c0) and abs(c0["low"]-c1["low"]) < r0*0.05:
         return "Tweezer Bottom", "bullish"
 
-    # BEARISCHE PATTERNS
-    if (is_bearish(c0) and us0 >= body0 * 2 and ls0 <= body0 * 0.3 and body0 < range0 * 0.4):
+    # Bearish
+    if _bear(c0) and us0 >= b0*2 and ls0 <= b0*0.3 and b0 < r0*0.4:
         return "Shooting Star", "bearish"
-
-    if (is_bearish(c0) and ls0 >= body0 * 2 and us0 <= body0 * 0.3 and
-            body0 < range0 * 0.4 and is_bullish(c1)):
+    if (_bear(c0) and ls0 >= b0*2 and us0 <= b0*0.3
+            and b0 < r0*0.4 and _bull(c1)):
         return "Hanging Man", "bearish"
-
-    if (body0 <= range0 * 0.05 and us0 >= range0 * 0.6 and ls0 <= range0 * 0.1):
+    if b0 <= r0*0.05 and us0 >= r0*0.6 and ls0 <= r0*0.1:
         return "Gravestone Doji", "bearish"
-
-    if (is_bullish(c1) and is_bearish(c0) and
-            c0["open"] > c1["close"] and c0["close"] < c1["open"] and body0 > body1):
+    if (_bull(c1) and _bear(c0) and c0["open"] > c1["close"]
+            and c0["close"] < c1["open"] and b0 > b1):
         return "Bearish Engulfing", "bearish"
-
-    if (is_bullish(c1) and is_bearish(c0) and
-            c0["open"] > c1["high"] and
-            c0["close"] < (c1["open"] + c1["close"]) / 2 and
-            c0["close"] > c1["open"]):
+    if (_bull(c1) and _bear(c0) and c0["open"] > c1["high"]
+            and c0["close"] < (c1["open"]+c1["close"])/2
+            and c0["close"] > c1["open"]):
         return "Dark Cloud Cover", "bearish"
-
-    if (is_bullish(c2) and candle_body(c1) < avg_body * 0.3 and
-            is_bearish(c0) and c0["close"] < (c2["open"] + c2["close"]) / 2):
+    if (_bull(c2) and _body(c1) < avg_b*0.3 and _bear(c0)
+            and c0["close"] < (c2["open"]+c2["close"])/2):
         return "Evening Star", "bearish"
-
-    if (is_bearish(c0) and is_bearish(c1) and is_bearish(c2) and
-            c0["close"] < c1["close"] < c2["close"] and
-            c0["open"] < c1["open"] < c2["open"] and
-            ls0 < body0 * 0.3 and ls1 < body1 * 0.3):
+    if (_bear(c0) and _bear(c1) and _bear(c2)
+            and c0["close"] < c1["close"] < c2["close"]
+            and c0["open"]  < c1["open"]  < c2["open"]
+            and ls0 < b0*0.3 and ls1 < b1*0.3):
         return "Three Black Crows", "bearish"
-
-    if (is_bullish(c1) and is_bearish(c0) and abs(c0["high"] - c1["high"]) < range0 * 0.05):
+    if _bull(c1) and _bear(c0) and abs(c0["high"]-c1["high"]) < r0*0.05:
         return "Tweezer Top", "bearish"
 
-    # NEUTRALE PATTERNS
-    if body0 <= range0 * 0.05:
+    # Neutral
+    if b0 <= r0*0.05:
         return "Doji", "neutral"
-
-    if (body0 < avg_body * 0.3 and us0 > body0 and ls0 > body0):
+    if b0 < avg_b*0.3 and us0 > b0 and ls0 > b0:
         return "Spinning Top", "neutral"
 
     return None, "neutral"
 
 
-# -- SIGNAL ENGINE ------------------------------------------------------------
+# ── POSITION SIZING ───────────────────────────────────────────────────────────
 
 def pip_value(symbol):
     return 0.0001 if "JPY" not in symbol else 0.01
 
 
-def calc_lot(balance, sl_price_dist, symbol):
-    risk_amount = balance * (RISK_PCT / 100)
-    lot = risk_amount / (sl_price_dist * 100000)
-    return round(max(lot, 0.01), 2)
+def calc_lot_selflearn(balance, sl_dist, symbol):
+    """SELF-LEARN: 1% ATR-basiert."""
+    risk = balance * (RISK_PCT / 100)
+    return round(max(risk / (sl_dist * 100000), 0.01), 2)
 
+
+def calc_lot_kelly(balance, sl_dist, symbol):
+    """KELLY CRITERION: f* = (p*b - q) / b, max 5%."""
+    with _lock:
+        st = _state["stats"]
+        wr = st.get("win_rate", 50.0)
+    p = wr / 100
+    q = 1 - p
+    b = ATR_TP_MULT / ATR_SL_MULT  # Basis-RR
+    kelly_f = max(0.0, (p * b - q) / b) if b > 0 else 0.01
+    kelly_f = min(kelly_f, 0.05)
+    with _lock:
+        _learn["kelly_f"] = round(kelly_f * 100, 2)
+    risk = balance * kelly_f
+    return round(max(risk / (sl_dist * 100000), 0.01), 2)
+
+
+def calc_lot_random(balance, sl_dist, symbol):
+    """RANDOM: 0.25%–1.75% zufaelliges Risiko."""
+    pct  = 0.25 + _random.random() * 1.5
+    risk = balance * (pct / 100)
+    return round(max(risk / (sl_dist * 100000), 0.01), 2)
+
+
+def get_lot(balance, sl_dist, symbol):
+    with _lock:
+        mode = _learn["mode"]
+    if mode == "KELLY":
+        return calc_lot_kelly(balance, sl_dist, symbol)
+    if mode == "RANDOM":
+        return calc_lot_random(balance, sl_dist, symbol)
+    return calc_lot_selflearn(balance, sl_dist, symbol)
+
+
+# ── SELF-LEARNING ENGINE ──────────────────────────────────────────────────────
+
+def record_pattern_result(pattern, profit):
+    """Verfolgt Gewinn/Verlust pro Candlestick-Pattern."""
+    if not pattern:
+        return
+    with _lock:
+        ps = _learn["pattern_stats"]
+        if pattern not in ps:
+            ps[pattern] = {"wins": 0, "total": 0, "wr": 0.0}
+        ps[pattern]["total"] += 1
+        if profit > 0:
+            ps[pattern]["wins"] += 1
+        t = ps[pattern]["total"]
+        ps[pattern]["wr"] = round(ps[pattern]["wins"] / t * 100, 1)
+        # Blockiere Patterns mit WR < 30% nach mindestens 5 Trades
+        blocked = [p for p, s in ps.items() if s["total"] >= 5 and s["wr"] < 30]
+        _learn["blocked_patterns"] = blocked
+
+
+def self_adjust():
+    """
+    Analysiert die letzten 20 Trades und passt Schwellenwerte an.
+    Laeuft nur im SELF-LEARN Modus.
+    """
+    global _last_trade_count
+    if not MT5_AVAILABLE:
+        return
+
+    deals = mt5.history_deals_get(
+        datetime(2000, 1, 1, tzinfo=timezone.utc),
+        datetime.now(timezone.utc)
+    )
+    if not deals:
+        return
+
+    our = [d for d in deals if d.magic == MAGIC and d.profit != 0]
+    total = len(our)
+
+    with _lock:
+        mode = _learn["mode"]
+        _learn["recent_trades"] = total
+
+    if total == _last_trade_count:
+        return  # Nichts Neues
+    if total < 5:
+        _last_trade_count = total
+        return
+
+    # Neuen Trade erkennen — Pattern-Tracking
+    if total > _last_trade_count:
+        new_deals = sorted(our, key=lambda d: d.time)[_last_trade_count:]
+        with _lock:
+            last_pattern = _state.get("candle_pattern") or {}
+            pname = last_pattern.get("name") if isinstance(last_pattern, dict) else None
+        for d in new_deals:
+            record_pattern_result(pname, d.profit)
+
+    _last_trade_count = total
+
+    if mode != "SELF-LEARN":
+        return  # Nur im SELF-LEARN Modus automatisch anpassen
+
+    # Lernzyklus nur alle LEARN_EVERY neuen Trades
+    if total % LEARN_EVERY != 0:
+        return
+
+    recent  = sorted(our, key=lambda d: d.time)[-20:]
+    profits = [d.profit for d in recent]
+    wins    = [p for p in profits if p > 0]
+    wr      = len(wins) / len(profits) * 100 if profits else 50.0
+
+    with _lock:
+        _learn["recent_wr"] = round(wr, 1)
+        old_adx = _learn["adx_threshold"]
+        msg = ""
+
+        if wr < 35:
+            # Schlechte Phase — deutlich strenger
+            _learn["adx_threshold"]  = min(old_adx + 4, 45)
+            _learn["rsi_low_buy"]    = min(_learn["rsi_low_buy"]  + 3, 52)
+            _learn["rsi_high_buy"]   = max(_learn["rsi_high_buy"] - 3, 58)
+            _learn["rsi_low_sell"]   = min(_learn["rsi_low_sell"] + 3, 48)
+            _learn["rsi_high_sell"]  = max(_learn["rsi_high_sell"]- 3, 53)
+            _learn["adjustments"]   += 1
+            msg = f"FILTER STRENGER: ADX {old_adx}->{_learn['adx_threshold']} (WR={wr:.0f}%)"
+
+        elif wr < 45:
+            # Unterdurchschnittlich — ADX erhoehen
+            _learn["adx_threshold"]  = min(old_adx + 2, 40)
+            _learn["adjustments"]   += 1
+            msg = f"ADX ERHOET: {old_adx}->{_learn['adx_threshold']} (WR={wr:.0f}%)"
+
+        elif wr > 65 and old_adx > ADX_MIN:
+            # Gute Phase — etwas lockerer werden
+            _learn["adx_threshold"]  = max(old_adx - 1, ADX_MIN)
+            _learn["adjustments"]   += 1
+            msg = f"ADX GESENKT: {old_adx}->{_learn['adx_threshold']} (WR={wr:.0f}%)"
+
+        if msg:
+            _learn["last_adjust"] = msg
+            print(f"[LEARN] {msg}")
+
+        _state["learn"] = json.loads(json.dumps(_learn))
+
+
+# ── SIGNAL ENGINE ─────────────────────────────────────────────────────────────
 
 def get_bars(symbol, timeframe, n=250):
     if not MT5_AVAILABLE:
@@ -354,57 +450,65 @@ def get_bars(symbol, timeframe, n=250):
 
 def get_signal(rates):
     closes = [r["close"] for r in rates]
-    highs  = [r["high"]  for r in rates]
-    lows   = [r["low"]   for r in rates]
-
     if len(closes) < EMA_SLOW + 10:
         return None, {}
 
-    ema_f  = ema_series(closes, EMA_FAST)
-    ema_m  = ema_series(closes, EMA_MID)
-    ema_s  = ema_series(closes, EMA_SLOW)
-    rsi_v  = rsi(closes[-RSI_PERIOD - 10:], RSI_PERIOD)
-    macd_l, macd_sig, macd_hist = macd(closes, MACD_FAST, MACD_SLOW, MACD_SIGNAL)
-    atr_v  = atr(list(rates)[-ATR_PERIOD - 5:], ATR_PERIOD)
-    adx_v  = adx(list(rates)[-ADX_PERIOD * 3:], ADX_PERIOD)
-    struct = market_structure(closes[-30:])
+    with _lock:
+        adx_min     = _learn["adx_threshold"]
+        rsi_lo_buy  = _learn["rsi_low_buy"]
+        rsi_hi_buy  = _learn["rsi_high_buy"]
+        rsi_lo_sell = _learn["rsi_low_sell"]
+        rsi_hi_sell = _learn["rsi_high_sell"]
+        blocked     = list(_learn["blocked_patterns"])
 
-    pattern_name, pattern_bias = detect_candle_patterns(list(rates)[-3:])
+    ef = ema_series(closes, EMA_FAST)
+    em = ema_series(closes, EMA_MID)
+    es = ema_series(closes, EMA_SLOW)
+    rsi_v = rsi(closes[-RSI_PERIOD - 10:], RSI_PERIOD)
+    ml, ms, mh = macd(closes, MACD_FAST, MACD_SLOW, MACD_SIGNAL)
+    atr_v = atr(list(rates)[-ATR_PERIOD - 5:], ATR_PERIOD)
+    adx_v = adx(list(rates)[-ADX_PERIOD * 3:], ADX_PERIOD)
+    struct = market_structure(closes[-30:])
+    pname, pbias = detect_candle_patterns(list(rates)[-3:])
 
     indicators = {
-        "ema20":         round(ema_f[-1], 5),
-        "ema50":         round(ema_m[-1], 5),
-        "ema200":        round(ema_s[-1], 5),
-        "rsi":           round(rsi_v, 1),
-        "macd":          round(macd_l[-1], 6),
-        "macd_sig":      round(macd_sig[-1], 6),
-        "macd_hist":     round(macd_hist[-1], 6),
-        "atr":           round(atr_v, 5),
-        "adx":           round(adx_v, 1),
-        "structure":     struct,
-        "candle_pattern": pattern_name,
-        "candle_bias":    pattern_bias,
+        "ema20":           round(ef[-1], 5),
+        "ema50":           round(em[-1], 5),
+        "ema200":          round(es[-1], 5),
+        "rsi":             round(rsi_v, 1),
+        "macd":            round(ml[-1], 6),
+        "macd_sig":        round(ms[-1], 6),
+        "macd_hist":       round(mh[-1], 6),
+        "atr":             round(atr_v, 5),
+        "adx":             round(adx_v, 1),
+        "adx_min":         adx_min,
+        "structure":       struct,
+        "candle_pattern":  pname,
+        "candle_bias":     pbias,
     }
 
-    ema_bull = ema_f[-1] > ema_m[-1] > ema_s[-1]
-    ema_bear = ema_f[-1] < ema_m[-1] < ema_s[-1]
-    macd_bull = macd_hist[-1] > 0 and macd_l[-1] > macd_sig[-1]
-    macd_bear = macd_hist[-1] < 0 and macd_l[-1] < macd_sig[-1]
+    ema_bull  = ef[-1] > em[-1] > es[-1]
+    ema_bear  = ef[-1] < em[-1] < es[-1]
+    macd_bull = mh[-1] > 0 and ml[-1] > ms[-1]
+    macd_bear = mh[-1] < 0 and ml[-1] < ms[-1]
+    blocked_pattern = pname in blocked
 
     signal = None
-
-    if (ema_bull and adx_v >= ADX_MIN and 40 <= rsi_v <= 65 and
-            macd_bull and struct == "bullish" and pattern_bias == "bullish"):
+    if (ema_bull and adx_v >= adx_min and rsi_lo_buy <= rsi_v <= rsi_hi_buy
+            and macd_bull and struct == "bullish"
+            and pbias == "bullish" and not blocked_pattern):
         signal = "BUY"
-
-    elif (ema_bear and adx_v >= ADX_MIN and 35 <= rsi_v <= 60 and
-            macd_bear and struct == "bearish" and pattern_bias == "bearish"):
+    elif (ema_bear and adx_v >= adx_min and rsi_lo_sell <= rsi_v <= rsi_hi_sell
+            and macd_bear and struct == "bearish"
+            and pbias == "bearish" and not blocked_pattern):
         signal = "SELL"
 
     return signal, indicators
 
 
-def open_position(symbol, signal, balance, atr_v):
+# ── ORDER MANAGEMENT ──────────────────────────────────────────────────────────
+
+def open_position(symbol, signal, balance, atr_v, pattern_name):
     if not MT5_AVAILABLE:
         return False
     tick = mt5.symbol_info_tick(symbol)
@@ -413,18 +517,19 @@ def open_position(symbol, signal, balance, atr_v):
 
     sl_dist = atr_v * ATR_SL_MULT
     tp_dist = atr_v * ATR_TP_MULT
-    lot     = calc_lot(balance, sl_dist, symbol)
+    lot     = get_lot(balance, sl_dist, symbol)
 
     if signal == "BUY":
-        price = tick.ask
-        sl    = round(price - sl_dist, 5)
-        tp    = round(price + tp_dist, 5)
-        order_type = mt5.ORDER_TYPE_BUY
+        price, order_type = tick.ask, mt5.ORDER_TYPE_BUY
+        sl = round(price - sl_dist, 5)
+        tp = round(price + tp_dist, 5)
     else:
-        price = tick.bid
-        sl    = round(price + sl_dist, 5)
-        tp    = round(price - tp_dist, 5)
-        order_type = mt5.ORDER_TYPE_SELL
+        price, order_type = tick.bid, mt5.ORDER_TYPE_SELL
+        sl = round(price + sl_dist, 5)
+        tp = round(price - tp_dist, 5)
+
+    with _lock:
+        mode = _learn["mode"]
 
     request = {
         "action":       mt5.TRADE_ACTION_DEAL,
@@ -435,28 +540,26 @@ def open_position(symbol, signal, balance, atr_v):
         "sl":           sl,
         "tp":           tp,
         "magic":        MAGIC,
-        "comment":      "CLAUDE+QUANT v2",
+        "comment":      f"CQ-{mode[:2]}-{(pattern_name or 'XX')[:8]}",
         "type_time":    mt5.ORDER_TIME_GTC,
         "type_filling": mt5.ORDER_FILLING_IOC,
     }
     result = mt5.order_send(request)
     if result and result.retcode == mt5.TRADE_RETCODE_DONE:
         pip = pip_value(symbol)
-        sl_pips = round(sl_dist / pip)
-        tp_pips = round(tp_dist / pip)
-        print(f"[BOT] {signal} eroeffnet: {lot} Lots @ {price}  SL={sl}({sl_pips}p)  TP={tp}({tp_pips}p)")
+        print(f"[BOT] {signal} {lot}L @ {price}  SL={sl}({round(sl_dist/pip)}p)  "
+              f"TP={tp}({round(tp_dist/pip)}p)  Mode={mode}  Pattern={pattern_name}")
         return True
-    else:
-        code = result.retcode if result else "N/A"
-        print(f"[BOT] Order fehlgeschlagen: {code}")
-        return False
+    code = result.retcode if result else "N/A"
+    print(f"[BOT] Order fehlgeschlagen: {code}")
+    return False
 
 
 def has_open_position(symbol):
     if not MT5_AVAILABLE:
         return False
-    positions = mt5.positions_get(symbol=symbol)
-    return positions is not None and len(positions) > 0
+    pos = mt5.positions_get(symbol=symbol)
+    return pos is not None and len(pos) > 0
 
 
 def update_account():
@@ -465,6 +568,7 @@ def update_account():
     info = mt5.account_info()
     if info is None:
         return
+
     state_set("account", {
         "balance":  round(info.balance, 2),
         "equity":   round(info.equity, 2),
@@ -476,19 +580,14 @@ def update_account():
     })
 
     positions = mt5.positions_get()
-    pos_list = []
+    pos_list  = []
     if positions:
         for p in positions:
             pos_list.append({
-                "ticket": p.ticket,
-                "symbol": p.symbol,
+                "ticket": p.ticket, "symbol": p.symbol,
                 "type":   "BUY" if p.type == 0 else "SELL",
-                "volume": p.volume,
-                "open":   p.price_open,
-                "sl":     p.sl,
-                "tp":     p.tp,
-                "profit": round(p.profit, 2),
-                "magic":  p.magic,
+                "volume": p.volume, "open": p.price_open,
+                "sl": p.sl, "tp": p.tp, "profit": round(p.profit, 2),
             })
     state_set("positions", pos_list)
 
@@ -497,13 +596,13 @@ def update_account():
         datetime.now(timezone.utc)
     )
     if deals:
-        our_deals = [d for d in deals if d.magic == MAGIC and d.profit != 0]
-        profits   = [d.profit for d in our_deals]
-        wins      = [p for p in profits if p > 0]
+        our = [d for d in deals if d.magic == MAGIC and d.profit != 0]
+        profits = [d.profit for d in our]
+        wins    = [p for p in profits if p > 0]
         state_set("stats", {
             "trades_total": len(profits),
             "trades_win":   len(wins),
-            "win_rate":     round(len(wins) / len(profits) * 100, 1) if profits else 0.0,
+            "win_rate":     round(len(wins)/len(profits)*100, 1) if profits else 0.0,
             "total_profit": round(sum(profits), 2),
             "biggest_win":  round(max(profits), 2) if profits else 0.0,
             "biggest_loss": round(min(profits), 2) if profits else 0.0,
@@ -518,62 +617,91 @@ def update_account():
             "spread": round((tick.ask - tick.bid) / pip, 1),
         })
 
+    with _lock:
+        _state["learn"] = json.loads(json.dumps(_learn))
 
-# -- LOCAL HTTP API SERVER -----------------------------------------------------
+
+# ── HTTP API ──────────────────────────────────────────────────────────────────
+
 class APIHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
+    def _cors(self):
+        self.send_header("Access-Control-Allow-Origin",  "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "*")
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self._cors()
+        self.end_headers()
+
     def do_GET(self):
-        if self.path in ("/data", "/data/"):
+        parsed = urlparse(self.path)
+        path   = parsed.path.rstrip("/")
+        qs     = parse_qs(parsed.query)
+
+        if path == "/data":
             data = json.dumps(state_get(), indent=2).encode()
             self.send_response(200)
-            self.send_header("Content-Type",  "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Type",   "application/json")
             self.send_header("Content-Length", len(data))
+            self._cors()
             self.end_headers()
             self.wfile.write(data)
+
+        elif path == "/mode":
+            mode = qs.get("set", ["SELF-LEARN"])[0].upper()
+            if mode in ("RANDOM", "KELLY", "SELF-LEARN"):
+                with _lock:
+                    _learn["mode"] = mode
+                    _state["learn"] = json.loads(json.dumps(_learn))
+                print(f"[API] Modus gewechselt -> {mode}")
+                resp = json.dumps({"ok": True, "mode": mode}).encode()
+            else:
+                resp = json.dumps({"ok": False, "error": "Unbekannter Modus"}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type",   "application/json")
+            self.send_header("Content-Length", len(resp))
+            self._cors()
+            self.end_headers()
+            self.wfile.write(resp)
+
         else:
             self.send_response(404)
             self.end_headers()
 
-    def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.end_headers()
-
 
 def run_server():
     server = HTTPServer(("127.0.0.1", SERVER_PORT), APIHandler)
-    print(f"[API] Server laeuft auf http://127.0.0.1:{SERVER_PORT}/data")
+    print(f"[API] http://127.0.0.1:{SERVER_PORT}/data")
     server.serve_forever()
 
 
-# -- MAIN BOT LOOP ------------------------------------------------------------
+# ── MAIN BOT LOOP ─────────────────────────────────────────────────────────────
+
 def bot_loop():
     if not MT5_AVAILABLE:
         state_set("status", "error: MetaTrader5 nicht installiert")
         state_set("connected", False)
-        print("[BOT] MetaTrader5 nicht installiert.")
-        print("[BOT] Installieren mit: pip install MetaTrader5")
+        print("[BOT] pip install MetaTrader5")
         return
 
     if not mt5.initialize():
         state_set("status", "error: MT5 nicht gestartet")
         state_set("connected", False)
-        print("[BOT] Konnte nicht mit MT5 verbinden. Ist der Terminal geoeffnet?")
+        print("[BOT] MT5 Terminal oeffnen!")
         return
 
     state_set("connected", True)
     state_set("status", "running")
-    print(f"[BOT] Verbunden mit MT5  |  Symbol: {SYMBOL}  |  TF: M15")
-    print(f"[BOT] Strategie: EMA{EMA_FAST}/{EMA_MID}/{EMA_SLOW} + MACD + RSI + ADX + Candlestick Patterns")
-    print(f"[BOT] Risiko: {RISK_PCT}% pro Trade  |  SL: ATRx{ATR_SL_MULT}  |  TP: ATRx{ATR_TP_MULT}")
+    print(f"[BOT] Verbunden | {SYMBOL} M15 | v3.0 SELF-LEARN aktiv")
 
     while True:
         try:
             update_account()
+            self_adjust()
 
             rates = get_bars(SYMBOL, TIMEFRAME, 250)
             if rates is not None:
@@ -595,19 +723,17 @@ def bot_loop():
                     }
                     _state["indicators"]     = indicators
                     _state["candle_pattern"] = {"name": pattern, "bias": bias}
+                    mode = _learn["mode"]
+                    adx_min = _learn["adx_threshold"]
 
-                status_line = (
-                    f"RSI={rsi_v:.1f}  ADX={adx_v:.1f}  "
-                    f"Kerze={pattern or 'keins'}({bias})  "
-                    f"Struktur={indicators.get('structure')}  "
-                    f"Signal={signal or 'WARTE'}"
-                )
-                print(f"[BOT] {status_line}")
+                print(f"[BOT] {mode} | RSI={rsi_v:.1f} ADX={adx_v:.1f}(min={adx_min}) "
+                      f"Kerze={pattern or '--'}({bias}) Struct={indicators.get('structure')} "
+                      f"-> {signal or 'WARTE'}")
 
                 if signal and not has_open_position(SYMBOL):
                     balance = _state["account"].get("balance", 1000)
-                    print(f"[BOT] *** {signal} SIGNAL BESTAETIGT -- oeffne Position ***")
-                    open_position(SYMBOL, signal, balance, atr_v)
+                    print(f"[BOT] *** {signal} SIGNAL — Order wird gesendet ***")
+                    open_position(SYMBOL, signal, balance, atr_v, pattern)
 
         except Exception as e:
             print(f"[BOT] Fehler: {e}")
@@ -616,24 +742,21 @@ def bot_loop():
         time.sleep(CHECK_EVERY)
 
 
-# -- ENTRY POINT --------------------------------------------------------------
+# ── ENTRY POINT ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     print("=" * 65)
-    print("  CLAUDE + QUANT  |  Trading Bot v2.0  |  Elite Strategy Stack")
+    print("  CLAUDE + QUANT  |  Trading Bot v3.0  |  Self-Learning")
     print("=" * 65)
-    print(f"  Symbol      : {SYMBOL}")
-    print(f"  Timeframe   : M15")
-    print(f"  EMA Trend   : {EMA_FAST}/{EMA_MID}/{EMA_SLOW}")
-    print(f"  Momentum    : RSI-{RSI_PERIOD}  +  MACD {MACD_FAST}/{MACD_SLOW}/{MACD_SIGNAL}")
-    print(f"  Trendstaerke: ADX-{ADX_PERIOD} (min. {ADX_MIN})")
-    print(f"  Stop-Loss   : ATR-{ATR_PERIOD} x {ATR_SL_MULT}")
-    print(f"  Take-Profit : ATR-{ATR_PERIOD} x {ATR_TP_MULT}")
-    print(f"  Kerzen      : 18 Patterns (Hammer, Engulfing, Doji, ...)")
-    print(f"  Risiko      : {RISK_PCT}% pro Trade")
-    print(f"  Dashboard   : http://127.0.0.1:{SERVER_PORT}/data")
+    print(f"  Symbol      : {SYMBOL} M15")
+    print(f"  EMA         : {EMA_FAST}/{EMA_MID}/{EMA_SLOW}")
+    print(f"  RSI         : {RSI_PERIOD}  |  ADX Start: {ADX_MIN}")
+    print(f"  SL/TP       : ATR x {ATR_SL_MULT} / ATR x {ATR_TP_MULT}")
+    print(f"  Modi        : SELF-LEARN (default) | KELLY | RANDOM")
+    print(f"  Lernen      : alle {LEARN_EVERY} Trades (ADX, RSI, Patterns)")
+    print(f"  API         : http://127.0.0.1:{SERVER_PORT}/data")
+    print(f"  Modus API   : http://127.0.0.1:{SERVER_PORT}/mode?set=KELLY")
     print("=" * 65)
 
     t = threading.Thread(target=run_server, daemon=True)
     t.start()
-
     bot_loop()
