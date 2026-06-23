@@ -610,6 +610,22 @@ STRATEGY_WEIGHTS = {
     "PRICE_ACTION":dict(ema=2, adx=1, rsi=1, macd=1, bb=1, stoch=1, vwap=1, fib=2, ob=3, fvg=2, struct=4, pat=5),
     # Wyckoff Methode (Akkumulation/Distribution Phasen)
     "WYCKOFF":     dict(ema=2, adx=2, rsi=1, macd=2, bb=3, stoch=1, vwap=3, fib=1, ob=2, fvg=1, struct=5, pat=1),
+    # ── NEU: ERWEITERTE ELITE-METHODEN ──────────────────────────────────────────
+    # Ichimoku Cloud System (Hosoda — japanische Profis)
+    "ICHIMOKU":    dict(ema=1, adx=1, rsi=1, macd=1, bb=1, stoch=1, vwap=1, fib=1, ob=1, fvg=1, struct=2, pat=1,
+                        ichi=5, super=2, don=1, cci=1, willr=1, vol=1),
+    # Supertrend Trendfolge (ATR-basiert, sehr zuverlässig)
+    "SUPERTREND":  dict(ema=2, adx=2, rsi=1, macd=2, bb=1, stoch=1, vwap=1, fib=1, ob=1, fvg=1, struct=2, pat=1,
+                        ichi=1, super=5, don=2, cci=1, willr=1, vol=2),
+    # Multi-Timeframe (lange EMAs simulieren H1/H4 Trend)
+    "MULTI_TF":    dict(ema=5, adx=2, rsi=1, macd=2, bb=1, stoch=1, vwap=2, fib=1, ob=1, fvg=1, struct=3, pat=1,
+                        ichi=2, super=3, don=1, cci=1, willr=1, vol=1),
+    # Bollinger Squeeze (BB-Kompression → explosiver Ausbruch)
+    "BB_SQUEEZE":  dict(ema=1, adx=2, rsi=1, macd=2, bb=5, stoch=1, vwap=1, fib=1, ob=1, fvg=1, struct=1, pat=1,
+                        ichi=1, super=1, don=3, cci=2, willr=1, vol=3),
+    # Volumen-bestätigt (kein Trade ohne Volumen-Bestätigung)
+    "VOLUME_CONF": dict(ema=2, adx=2, rsi=2, macd=2, bb=1, stoch=1, vwap=3, fib=1, ob=1, fvg=1, struct=2, pat=2,
+                        ichi=1, super=2, don=1, cci=2, willr=2, vol=5),
 }
 
 # ── ELITE INDICATORS ─────────────────────────────────────────────────────────
@@ -742,6 +758,96 @@ def find_fair_value_gaps(rates, lookback=30):
         if c2["high"] < c0["low"]:
             bear_fvgs.append({"top": round(c0["low"],2), "bottom": round(c2["high"],2)})
     return {"bullish": bull_fvgs[-3:], "bearish": bear_fvgs[-3:]}
+
+
+# ── NEU: ERWEITERTE ELITE-INDIKATOREN ────────────────────────────────────────
+
+def ichimoku(candles, tenkan=9, kijun=26, senkou_b=52):
+    """Ichimoku Cloud: Tenkan/Kijun Cross + Price vs Cloud."""
+    if len(candles) < senkou_b:
+        return {"trend": "neutral", "tk_cross": "neutral", "cloud_pos": "neutral"}
+    highs = [c["high"] for c in candles]
+    lows  = [c["low"]  for c in candles]
+
+    def midpt(n):
+        return (max(highs[-n:]) + min(lows[-n:])) / 2
+
+    tenkan_v   = midpt(tenkan)
+    kijun_v    = midpt(kijun)
+    senkou_a   = (tenkan_v + kijun_v) / 2
+    senkou_b_v = midpt(senkou_b)
+    cloud_top  = max(senkou_a, senkou_b_v)
+    cloud_bot  = min(senkou_a, senkou_b_v)
+    price      = candles[-1]["close"]
+
+    cloud_pos = "bullish" if price > cloud_top else ("bearish" if price < cloud_bot else "neutral")
+    tk_cross  = "bullish" if tenkan_v > kijun_v else ("bearish" if tenkan_v < kijun_v else "neutral")
+    trend     = "bullish" if cloud_pos == "bullish" and tk_cross == "bullish" else \
+                "bearish" if cloud_pos == "bearish" and tk_cross == "bearish" else "neutral"
+    return {"trend": trend, "tk_cross": tk_cross, "cloud_pos": cloud_pos,
+            "tenkan": round(tenkan_v, 2), "kijun": round(kijun_v, 2)}
+
+
+def supertrend(candles, period=10, multiplier=3.0):
+    """Supertrend: ATR-basierter Trendfolger (bullish/bearish)."""
+    if len(candles) < period + 2:
+        return "neutral", 0.0
+    highs  = [c["high"]  for c in candles]
+    lows   = [c["low"]   for c in candles]
+    closes = [c["close"] for c in candles]
+    trs = [max(highs[i]-lows[i], abs(highs[i]-closes[i-1]), abs(lows[i]-closes[i-1]))
+           for i in range(1, len(candles))]
+    atr_avg = sum(trs[-period:]) / period
+    mid     = (highs[-1] + lows[-1]) / 2
+    upper   = mid + multiplier * atr_avg
+    lower   = mid - multiplier * atr_avg
+    close   = closes[-1]
+    direction = "bullish" if close > mid else "bearish"
+    band = lower if direction == "bullish" else upper
+    return direction, round(band, 2)
+
+
+def donchian_channel(candles, period=20):
+    """Donchian Channel: Höchstes Hoch / Tiefstes Tief der letzten N Kerzen."""
+    if len(candles) < period:
+        return None, None, None
+    seg   = candles[-period:]
+    upper = max(c["high"] for c in seg)
+    lower = min(c["low"]  for c in seg)
+    mid   = (upper + lower) / 2
+    return round(upper, 2), round(lower, 2), round(mid, 2)
+
+
+def cci_indicator(candles, period=20):
+    """Commodity Channel Index (CCI)."""
+    if len(candles) < period:
+        return 0.0
+    tps  = [(c["high"] + c["low"] + c["close"]) / 3 for c in candles[-period:]]
+    avg  = sum(tps) / period
+    mdev = sum(abs(tp - avg) for tp in tps) / period
+    return round((tps[-1] - avg) / (0.015 * mdev), 1) if mdev > 0 else 0.0
+
+
+def williams_r(candles, period=14):
+    """Williams %R: Überkauft/Überverkauft Oszillator (-100 bis 0)."""
+    if len(candles) < period:
+        return -50.0
+    seg   = candles[-period:]
+    h     = max(c["high"]  for c in seg)
+    l     = min(c["low"]   for c in seg)
+    close = candles[-1]["close"]
+    return round(-100 * (h - close) / (h - l), 1) if h != l else -50.0
+
+
+def volume_ratio(candles, period=20):
+    """Volumen-Ratio: aktuell vs. Durchschnitt. Gibt (ratio, is_high_vol) zurück."""
+    if len(candles) < period + 1:
+        return 1.0, False
+    vols = [c.get("tick_volume", c.get("volume", 1)) for c in candles]
+    avg  = sum(vols[-(period + 1):-1]) / period
+    cur  = vols[-1]
+    ratio = round(cur / avg, 2) if avg > 0 else 1.0
+    return ratio, ratio >= 1.3
 
 
 # ── SIGNAL ENGINE ─────────────────────────────────────────────────────────────
@@ -882,6 +988,51 @@ def _single_strategy_signal(rates, strat=None):
     if pname and pname not in blocked:
         if pname in BULL_PAT:  buy_score  += W["pat"]
         if pname in BEAR_PAT:  sell_score += W["pat"]
+
+    # ── NEUE ELITE-INDIKATOREN (mit .get() → Gewicht 0 = nicht aktiv) ─────────
+
+    # 14. Ichimoku Cloud
+    if W.get("ichi", 0):
+        ichi_v = ichimoku(list(rates)[-60:])
+        if ichi_v["trend"] == "bullish":   buy_score  += W["ichi"]
+        elif ichi_v["trend"] == "bearish": sell_score += W["ichi"]
+        if ichi_v["tk_cross"] == "bullish":   buy_score  += W["ichi"] // 2
+        elif ichi_v["tk_cross"] == "bearish": sell_score += W["ichi"] // 2
+
+    # 15. Supertrend
+    if W.get("super", 0):
+        st_dir, _ = supertrend(list(rates)[-30:])
+        if st_dir == "bullish":   buy_score  += W["super"]
+        elif st_dir == "bearish": sell_score += W["super"]
+
+    # 16. Donchian Channel
+    if W.get("don", 0):
+        don_up, don_lo, don_mid = donchian_channel(list(rates)[-30:])
+        if don_mid:
+            if price > don_mid:   buy_score  += W["don"]
+            else:                 sell_score += W["don"]
+            if don_up and price >= don_up * 0.999: buy_score  += W["don"]
+            if don_lo and price <= don_lo * 1.001: sell_score += W["don"]
+
+    # 17. CCI
+    if W.get("cci", 0):
+        cci_v = cci_indicator(list(rates)[-25:])
+        if cci_v > 100:    buy_score  += W["cci"]
+        elif cci_v < -100: sell_score += W["cci"]
+
+    # 18. Williams %R
+    if W.get("willr", 0):
+        willr_v = williams_r(list(rates)[-20:])
+        if willr_v < -80:   buy_score  += W["willr"]  # überverkauft
+        elif willr_v > -20: sell_score += W["willr"]  # überkauft
+
+    # 19. Volumen-Bestätigung
+    if W.get("vol", 0):
+        vol_rat, vol_high = volume_ratio(list(rates)[-25:])
+        if vol_high:
+            cur = list(rates)[-1]
+            if cur["close"] > cur["open"]: buy_score  += W["vol"]
+            else:                          sell_score += W["vol"]
 
     # ── ENTSCHEIDUNG ──────────────────────────────────────────────────────────
     MIN_SCORE = min_score

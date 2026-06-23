@@ -406,18 +406,23 @@ def generate_mql5_ea(best_strat, metrics, balance=10000.0):
 
     # Strategie-Gewichtungen (identisch mit trading_bot.py)
     WEIGHTS = {
-        "BALANCED":    dict(ema=3, adx=3, rsi=3, macd=3, bb=2, stoch=2),
-        "BB_SCALP":    dict(ema=1, adx=2, rsi=3, macd=1, bb=5, stoch=4),
-        "SCALP":       dict(ema=2, adx=2, rsi=4, macd=2, bb=4, stoch=5),
-        "FIB_SWING":   dict(ema=3, adx=2, rsi=2, macd=2, bb=1, stoch=2),
-        "ICT_SMC":     dict(ema=2, adx=2, rsi=2, macd=2, bb=1, stoch=1),
-        "VWAP_TREND":  dict(ema=3, adx=3, rsi=2, macd=3, bb=2, stoch=1),
-        "MOMENTUM":    dict(ema=3, adx=4, rsi=3, macd=5, bb=2, stoch=3),
-        "ENSEMBLE":    dict(ema=3, adx=3, rsi=3, macd=3, bb=3, stoch=3),
-        "REVERSAL":    dict(ema=1, adx=1, rsi=5, macd=1, bb=4, stoch=5),
-        "BREAKOUT":    dict(ema=2, adx=4, rsi=1, macd=3, bb=5, stoch=1),
-        "PRICE_ACTION":dict(ema=2, adx=1, rsi=1, macd=1, bb=1, stoch=1),
-        "WYCKOFF":     dict(ema=2, adx=2, rsi=1, macd=2, bb=3, stoch=1),
+        "BALANCED":    dict(ema=3, adx=3, rsi=3, macd=3, bb=2, stoch=2, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
+        "BB_SCALP":    dict(ema=1, adx=2, rsi=3, macd=1, bb=5, stoch=4, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
+        "SCALP":       dict(ema=2, adx=2, rsi=4, macd=2, bb=4, stoch=5, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
+        "FIB_SWING":   dict(ema=3, adx=2, rsi=2, macd=2, bb=1, stoch=2, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
+        "ICT_SMC":     dict(ema=2, adx=2, rsi=2, macd=2, bb=1, stoch=1, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
+        "VWAP_TREND":  dict(ema=3, adx=3, rsi=2, macd=3, bb=2, stoch=1, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
+        "MOMENTUM":    dict(ema=3, adx=4, rsi=3, macd=5, bb=2, stoch=3, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
+        "ENSEMBLE":    dict(ema=3, adx=3, rsi=3, macd=3, bb=3, stoch=3, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
+        "REVERSAL":    dict(ema=1, adx=1, rsi=5, macd=1, bb=4, stoch=5, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
+        "BREAKOUT":    dict(ema=2, adx=4, rsi=1, macd=3, bb=5, stoch=1, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
+        "PRICE_ACTION":dict(ema=2, adx=1, rsi=1, macd=1, bb=1, stoch=1, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
+        "WYCKOFF":     dict(ema=2, adx=2, rsi=1, macd=2, bb=3, stoch=1, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
+        "ICHIMOKU":    dict(ema=1, adx=1, rsi=1, macd=1, bb=1, stoch=1, ichi=5, super=2, don=1, cci=1, willr=1, vol=1),
+        "SUPERTREND":  dict(ema=2, adx=2, rsi=1, macd=2, bb=1, stoch=1, ichi=1, super=5, don=2, cci=1, willr=1, vol=2),
+        "MULTI_TF":    dict(ema=5, adx=2, rsi=1, macd=2, bb=1, stoch=1, ichi=2, super=3, don=1, cci=1, willr=1, vol=1),
+        "BB_SQUEEZE":  dict(ema=1, adx=2, rsi=1, macd=2, bb=5, stoch=1, ichi=1, super=1, don=3, cci=2, willr=1, vol=3),
+        "VOLUME_CONF": dict(ema=2, adx=2, rsi=2, macd=2, bb=1, stoch=1, ichi=1, super=2, don=1, cci=2, willr=2, vol=5),
     }
     W = WEIGHTS.get(stype, WEIGHTS["BALANCED"])
 

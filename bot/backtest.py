@@ -23,6 +23,8 @@ from trading_bot import (
     market_structure, detect_candle_patterns,
     bollinger_bands, stoch_rsi, fibonacci_levels,
     find_order_blocks, find_fair_value_gaps,
+    ichimoku, supertrend, donchian_channel,
+    cci_indicator, williams_r, volume_ratio,
     ATR_SL_MULT, ATR_TP_MULT, BREAK_EVEN_AT, CONTRACT_SIZES, MT5_AVAILABLE
 )
 
@@ -59,6 +61,17 @@ STRATEGIES = [
      "rsi_low_s": 35, "rsi_high_s": 65, "need_pattern": True,  "sl_mult": 1.5, "tp_mult": 2.5, "min_score": 8,  "break_even_at": 1.0},
     {"name": "WYCKOFF",     "strategy_type": "WYCKOFF",     "adx_min": 20, "rsi_low_b": 38, "rsi_high_b": 62,
      "rsi_low_s": 38, "rsi_high_s": 62, "need_pattern": False, "sl_mult": 1.5, "tp_mult": 3.0, "min_score": 8,  "break_even_at": 1.0},
+    # ── Neue Elite-Methoden ──────────────────────────────────────────────────
+    {"name": "ICHIMOKU",   "strategy_type": "ICHIMOKU",   "adx_min": 20, "rsi_low_b": 35, "rsi_high_b": 65,
+     "rsi_low_s": 35, "rsi_high_s": 65, "need_pattern": False, "sl_mult": 1.5, "tp_mult": 3.0, "min_score": 7,  "break_even_at": 1.0},
+    {"name": "SUPERTREND", "strategy_type": "SUPERTREND", "adx_min": 20, "rsi_low_b": 35, "rsi_high_b": 65,
+     "rsi_low_s": 35, "rsi_high_s": 65, "need_pattern": False, "sl_mult": 1.5, "tp_mult": 2.5, "min_score": 7,  "break_even_at": 0.8},
+    {"name": "MULTI_TF",   "strategy_type": "MULTI_TF",   "adx_min": 22, "rsi_low_b": 40, "rsi_high_b": 65,
+     "rsi_low_s": 35, "rsi_high_s": 60, "need_pattern": False, "sl_mult": 1.5, "tp_mult": 2.5, "min_score": 9,  "break_even_at": 1.0},
+    {"name": "BB_SQUEEZE", "strategy_type": "BB_SQUEEZE", "adx_min": 18, "rsi_low_b": 38, "rsi_high_b": 62,
+     "rsi_low_s": 38, "rsi_high_s": 62, "need_pattern": False, "sl_mult": 1.2, "tp_mult": 2.5, "min_score": 8,  "break_even_at": 0.8},
+    {"name": "VOLUME_CONF","strategy_type": "VOLUME_CONF","adx_min": 20, "rsi_low_b": 35, "rsi_high_b": 65,
+     "rsi_low_s": 35, "rsi_high_s": 65, "need_pattern": False, "sl_mult": 1.5, "tp_mult": 2.5, "min_score": 8,  "break_even_at": 1.0},
 ]
 
 
@@ -157,6 +170,17 @@ STRATEGY_WEIGHTS = {
     "PRICE_ACTION":dict(ema=2, adx=1, rsi=1, macd=1, bb=1, stoch=1, vwap=1, fib=2, ob=3, fvg=2, struct=4, pat=5),
     # Wyckoff Methode (Akkumulation/Distribution Phasen)
     "WYCKOFF":     dict(ema=2, adx=2, rsi=1, macd=2, bb=3, stoch=1, vwap=3, fib=1, ob=2, fvg=1, struct=5, pat=1),
+    # ── NEU: ERWEITERTE ELITE-METHODEN (mit neuen Indikatoren) ───────────────────
+    "ICHIMOKU":    dict(ema=1, adx=1, rsi=1, macd=1, bb=1, stoch=1, vwap=1, fib=1, ob=1, fvg=1, struct=2, pat=1,
+                        ichi=5, super=2, don=1, cci=1, willr=1, vol=1),
+    "SUPERTREND":  dict(ema=2, adx=2, rsi=1, macd=2, bb=1, stoch=1, vwap=1, fib=1, ob=1, fvg=1, struct=2, pat=1,
+                        ichi=1, super=5, don=2, cci=1, willr=1, vol=2),
+    "MULTI_TF":    dict(ema=5, adx=2, rsi=1, macd=2, bb=1, stoch=1, vwap=2, fib=1, ob=1, fvg=1, struct=3, pat=1,
+                        ichi=2, super=3, don=1, cci=1, willr=1, vol=1),
+    "BB_SQUEEZE":  dict(ema=1, adx=2, rsi=1, macd=2, bb=5, stoch=1, vwap=1, fib=1, ob=1, fvg=1, struct=1, pat=1,
+                        ichi=1, super=1, don=3, cci=2, willr=1, vol=3),
+    "VOLUME_CONF": dict(ema=2, adx=2, rsi=2, macd=2, bb=1, stoch=1, vwap=3, fib=1, ob=1, fvg=1, struct=2, pat=2,
+                        ichi=1, super=2, don=1, cci=2, willr=2, vol=5),
 }
 
 STRATEGY_TYPES = list(STRATEGY_WEIGHTS.keys())
@@ -447,6 +471,46 @@ def precompute_signals(candles, strat):
         if pat:
             if bias == "bullish":   buy_score  += W["pat"]
             elif bias == "bearish": sell_score += W["pat"]
+
+        # ── NEUE ELITE-INDIKATOREN ────────────────────────────────────────────
+        seg = candles[max(0, i-59):i+1]
+
+        if W.get("ichi", 0):
+            ichi_v = ichimoku(seg)
+            if ichi_v["trend"] == "bullish":   buy_score  += W["ichi"]
+            elif ichi_v["trend"] == "bearish": sell_score += W["ichi"]
+            if ichi_v["tk_cross"] == "bullish":   buy_score  += W["ichi"] // 2
+            elif ichi_v["tk_cross"] == "bearish": sell_score += W["ichi"] // 2
+
+        if W.get("super", 0):
+            st_dir, _ = supertrend(candles[max(0, i-29):i+1])
+            if st_dir == "bullish":   buy_score  += W["super"]
+            elif st_dir == "bearish": sell_score += W["super"]
+
+        if W.get("don", 0):
+            don_up, don_lo, don_mid = donchian_channel(candles[max(0, i-29):i+1])
+            if don_mid:
+                if price > don_mid:   buy_score  += W["don"]
+                else:                 sell_score += W["don"]
+                if don_up and price >= don_up * 0.999: buy_score  += W["don"]
+                if don_lo and price <= don_lo * 1.001: sell_score += W["don"]
+
+        if W.get("cci", 0):
+            cci_v = cci_indicator(candles[max(0, i-24):i+1])
+            if cci_v > 100:    buy_score  += W["cci"]
+            elif cci_v < -100: sell_score += W["cci"]
+
+        if W.get("willr", 0):
+            willr_v = williams_r(candles[max(0, i-19):i+1])
+            if willr_v < -80:   buy_score  += W["willr"]
+            elif willr_v > -20: sell_score += W["willr"]
+
+        if W.get("vol", 0):
+            vol_rat, vol_high = volume_ratio(candles[max(0, i-24):i+1])
+            if vol_high:
+                cur = candles[i]
+                if cur["close"] > cur["open"]: buy_score  += W["vol"]
+                else:                          sell_score += W["vol"]
 
         sig = None
         if buy_score  >= min_score and buy_score  > sell_score + 2: sig = "BUY"
