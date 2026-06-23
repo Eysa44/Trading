@@ -42,28 +42,30 @@ SEARCH_SPACE = {
     "rsi_low_s":      [30, 33, 35, 38, 40, 55, 60, 62, 65],
     "rsi_high_s":     [50, 52, 55, 58, 60, 65, 70, 75, 80],
     "sl_mult":        [0.8, 1.0, 1.2, 1.5, 1.8, 2.0, 2.5],
-    "tp_mult":        [1.5, 2.0, 2.5, 3.0, 3.5, 4.0],
+    # Kleine TP-Werte (0.8-1.2) für Scalping: mehr Treffer → höhere Win-Rate
+    "tp_mult":        [0.8, 1.0, 1.2, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0],
     "need_pattern":   [True, False],
     "min_score":      [5, 6, 7, 8, 9, 10, 11, 12],
-    "strategy_type":  STRATEGY_TYPES,                     # 12 Elite-Strategie-Typen
-    "break_even_at":  [0.0, 0.8, 1.0, 1.2, 1.5],
+    "strategy_type":  STRATEGY_TYPES,
+    # Frühere Break-Even Werte (0.3, 0.5) → mehr BE-Trades → höhere WR
+    "break_even_at":  [0.0, 0.3, 0.5, 0.8, 1.0, 1.2, 1.5],
 }
 
 # ── QUALITÄTS-FILTER ──────────────────────────────────────────────────────────
 MIN_TRADES    = 8      # Mindestens 8 Trades für aussagekräftiges Ergebnis
-MAX_DRAWDOWN  = 20.0   # Maximal 20% Drawdown (realistisch für echte Daten)
-MIN_WR        = 40.0   # Mindestens 40% Win Rate (realistisch für echte XAUUSD-Daten)
+MAX_DRAWDOWN  = 20.0   # Maximal 20% Drawdown
+MIN_WR        = 60.0   # 60%+ Win Rate ansteuern (Ziel: 70-80%)
 
 
 # ── SCORING ───────────────────────────────────────────────────────────────────
 
 def score(m):
     """
-    Win-Rate-optimierter Score:
-    - Win Rate wird stärker belohnt als je zuvor (0.35 Gewicht)
-    - Profit Factor zeigt Qualität der Gewinne (0.20)
-    - Return und Sharpe für Gesamtperformance (je 0.20)
-    - Drawdown-Strafe: alles wird mit (1 - DD/100) multipliziert
+    High-Win-Rate Score: Ziel 70-80% WR.
+    - Win Rate stark gewichtet (0.55) — Hauptziel
+    - Profit Factor für Trade-Qualität (0.20)
+    - Return und Sharpe sekundär (je 0.10)
+    - Drawdown-Strafe bleibt
     """
     if "error" in m:
         return -999
@@ -79,15 +81,16 @@ def score(m):
     wr       = m["win_rate"] / 100            # 0.0 – 1.0
     sharpe   = max(m["sharpe"], 0)
     ret      = max(m["return_pct"], 0)
-    dd_pen   = 1 - (m["max_drawdown"] / 100)  # Drawdown-Strafe
+    dd_pen   = 1 - (m["max_drawdown"] / 100)
     trade_q  = math.log(m["total_trades"] + 1) / 6
-    pf_bonus = min((m["profit_factor"] - 1.0) / 2.0, 1.0)  # PF > 1 wird belohnt
+    pf_bonus = min((m["profit_factor"] - 1.0) / 2.0, 1.0)
 
-    # Win Rate quadratisch: 42%=0.18, 50%=0.25, 60%=0.36, 70%=0.49
-    wr_bonus = wr ** 2
+    # Win Rate kubisch: 60%=0.216, 65%=0.274, 70%=0.343, 75%=0.422, 80%=0.512
+    # Kubisch belohnt jeden WR-Prozentpunkt exponentiell stärker
+    wr_bonus = wr ** 3
 
     return round(
-        (wr_bonus * 0.35 + ret * 0.20 + sharpe * 0.20 + pf_bonus * 0.15 + trade_q * 0.10)
+        (wr_bonus * 0.55 + pf_bonus * 0.20 + ret * 0.10 + sharpe * 0.10 + trade_q * 0.05)
         * dd_pen, 4
     )
 
@@ -192,7 +195,8 @@ def print_top(results, n=10, balance=START_BALANCE):
         print(f"    SL / TP        : ATR x {s['sl_mult']} / ATR x {s['tp_mult']}")
         print(f"    Break-Even     : ATR x {s.get('break_even_at', 1.0)} (0=aus)")
         print(f"    Confluence Min : {s.get('min_score', 8)} Punkte")
-        print(f"    Win Rate       : {m['win_rate']}%")
+        wr_status = "ZIEL ERREICHT ✓" if m['win_rate'] >= 70 else ("NAHE AM ZIEL" if m['win_rate'] >= 60 else "")
+        print(f"    Win Rate       : {m['win_rate']}%  {wr_status}")
         print(f"    Kapital Start  : ${balance:,.2f}")
         print(f"    Kapital Ende   : ${final_b:,.2f}  ({p_sign}${profit:,.2f}  /  {p_sign}{m['return_pct']}%)")
         print(f"    Max Drawdown   : {m['max_drawdown']}%")
@@ -268,13 +272,13 @@ def main():
     n_str        = next((sys.argv[i+1] for i, a in enumerate(sys.argv) if a == "--trials"),  None)
     c_str        = next((sys.argv[i+1] for i, a in enumerate(sys.argv) if a == "--candles"), None)
     b_str        = next((sys.argv[i+1] for i, a in enumerate(sys.argv) if a == "--balance"), None)
-    n_trials     = int(n_str)   if n_str else 150
+    n_trials     = int(n_str)   if n_str else 500
     n_candles    = int(c_str)   if c_str else 5000
     balance      = float(b_str) if b_str else START_BALANCE
 
-    print(f"\n  CLAUDE + QUANT  |  Auto-Optimizer v1.0")
+    print(f"\n  CLAUDE + QUANT  |  Auto-Optimizer v1.0  |  Ziel: 70-80% Win Rate")
     print(f"  Symbol: {SYMBOL}  |  Trials: {n_trials}  |  Kerzen: {n_candles}  |  Startkapital: ${balance:,.2f}")
-    print(f"  Walk-Forward: Ja (65% Train / 35% Test)\n")
+    print(f"  Walk-Forward: Ja (65% Train / 35% Test)  |  Min WR: {MIN_WR}%\n")
 
     # Daten laden
     candles = None
