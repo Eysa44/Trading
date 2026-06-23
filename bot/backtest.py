@@ -423,19 +423,23 @@ def precompute_signals(candles, strat):
             if price >= fib.get("nearest_price", price): buy_score  += W["fib"]
             else:                                        sell_score += W["fib"]
 
-        if obs.get("bullish"):
+        if obs.get("bullish") and isinstance(obs["bullish"], dict):
             ob = obs["bullish"]
-            if ob["low"] <= price <= ob["high"] * 1.0005: buy_score  += W["ob"]
-        if obs.get("bearish"):
+            if ob.get("low") is not None and ob.get("low") <= price <= ob.get("high", price) * 1.0005:
+                buy_score += W["ob"]
+        if obs.get("bearish") and isinstance(obs["bearish"], dict):
             ob = obs["bearish"]
-            if ob["low"] * 0.9995 <= price <= ob["high"]: sell_score += W["ob"]
+            if ob.get("low") is not None and ob.get("low") * 0.9995 <= price <= ob.get("high", price):
+                sell_score += W["ob"]
 
-        if fvgs.get("bullish"):
+        if fvgs.get("bullish") and isinstance(fvgs["bullish"], dict):
             fvg = fvgs["bullish"]
-            if fvg["low"] <= price <= fvg["high"]: buy_score  += W["fvg"]
-        if fvgs.get("bearish"):
+            if fvg.get("low") is not None and fvg.get("low") <= price <= fvg.get("high", price):
+                buy_score += W["fvg"]
+        if fvgs.get("bearish") and isinstance(fvgs["bearish"], dict):
             fvg = fvgs["bearish"]
-            if fvg["low"] <= price <= fvg["high"]: sell_score += W["fvg"]
+            if fvg.get("low") is not None and fvg.get("low") <= price <= fvg.get("high", price):
+                sell_score += W["fvg"]
 
         if struct == "bullish":   buy_score  += W["struct"]
         elif struct == "bearish": sell_score += W["struct"]
