@@ -375,7 +375,7 @@ def main():
         json.dump(out, f, indent=2, ensure_ascii=False)
     print(f"  Alle Ergebnisse: optimizer_results.json")
 
-    # Beste Parameter anwenden
+    # Beste Parameter anwenden + MQL5 EA generieren
     if results:
         if apply:
             apply_best_params(results[0]["strat"])
@@ -386,6 +386,248 @@ def main():
                     apply_best_params(results[0]["strat"])
             except EOFError:
                 print("  (Tipp: --apply Flag nutzen um automatisch zu uebernehmen)")
+
+        # MQL5 EA immer generieren
+        best_m   = results[0]["metrics"]
+        mql_code = generate_mql5_ea(results[0]["strat"], best_m, balance)
+        ea_file  = "CLAUDE_QUANT_EA.mq5"
+        with open(ea_file, "w", encoding="utf-8") as f:
+            f.write(mql_code)
+        stype = results[0]["strat"].get("strategy_type", "BALANCED")
+        print(f"\n  [OK] MQL5 Expert Advisor gespeichert: {ea_file}")
+        print(f"  [OK] Strategie: {stype}  |  WR: {best_m['win_rate']}%  |  Return: {best_m['return_pct']:+.1f}%")
+        print(f"  --> In MT5: Datei in MQL5\\Experts\\ kopieren, kompilieren, auf XAUUSD M15 ziehen")
+
+
+def generate_mql5_ea(best_strat, metrics, balance=10000.0):
+    """Generiert einen fertigen MQL5 Expert Advisor aus den besten Optimizer-Parametern."""
+
+    stype = best_strat.get("strategy_type", "BALANCED")
+
+    # Strategie-Gewichtungen (identisch mit trading_bot.py)
+    WEIGHTS = {
+        "BALANCED":    dict(ema=3, adx=3, rsi=3, macd=3, bb=2, stoch=2),
+        "BB_SCALP":    dict(ema=1, adx=2, rsi=3, macd=1, bb=5, stoch=4),
+        "SCALP":       dict(ema=2, adx=2, rsi=4, macd=2, bb=4, stoch=5),
+        "FIB_SWING":   dict(ema=3, adx=2, rsi=2, macd=2, bb=1, stoch=2),
+        "ICT_SMC":     dict(ema=2, adx=2, rsi=2, macd=2, bb=1, stoch=1),
+        "VWAP_TREND":  dict(ema=3, adx=3, rsi=2, macd=3, bb=2, stoch=1),
+        "MOMENTUM":    dict(ema=3, adx=4, rsi=3, macd=5, bb=2, stoch=3),
+        "ENSEMBLE":    dict(ema=3, adx=3, rsi=3, macd=3, bb=3, stoch=3),
+        "REVERSAL":    dict(ema=1, adx=1, rsi=5, macd=1, bb=4, stoch=5),
+        "BREAKOUT":    dict(ema=2, adx=4, rsi=1, macd=3, bb=5, stoch=1),
+        "PRICE_ACTION":dict(ema=2, adx=1, rsi=1, macd=1, bb=1, stoch=1),
+        "WYCKOFF":     dict(ema=2, adx=2, rsi=1, macd=2, bb=3, stoch=1),
+    }
+    W = WEIGHTS.get(stype, WEIGHTS["BALANCED"])
+
+    wr   = metrics.get("win_rate", 0)
+    ret  = metrics.get("return_pct", 0)
+    dd   = metrics.get("max_drawdown", 0)
+    pf   = metrics.get("profit_factor", 0)
+    fb   = metrics.get("final_balance", balance)
+    prof = metrics.get("total_profit", 0)
+    p_s  = "+" if prof >= 0 else ""
+
+    code = f"""//+------------------------------------------------------------------+
+//|  CLAUDE + QUANT EA  —  Auto-generiert vom Optimizer             |
+//|  Strategie : {stype:<20}                              |
+//|  Win Rate  : {wr}%   Return: {ret:+.1f}%   Max DD: {dd}%        |
+//|  Profit Factor: {pf}   Trades: {metrics.get('total_trades',0)}                       |
+//|  Kapital: ${balance:.0f} -> ${fb:.2f} ({p_s}${prof:.2f})               |
+//+------------------------------------------------------------------+
+#property copyright "Claude + Quant Auto-Optimizer"
+#property version   "1.00"
+#include <Trade\\Trade.mqh>
+
+//── OPTIMIERTE EINGANGSPARAMETER ─────────────────────────────────
+input string   InpInfo          = "Strategie: {stype}";  // Info
+input double   InpRiskPct       = 1.0;                   // Risiko % pro Trade
+input int      InpADXMin        = {best_strat['adx_min']};  // ADX Minimum
+input int      InpRSILowBuy     = {best_strat['rsi_low_b']}; // RSI Kauf-Untergrenze
+input int      InpRSIHighBuy    = {best_strat['rsi_high_b']}; // RSI Kauf-Obergrenze
+input int      InpRSILowSell    = {best_strat['rsi_low_s']}; // RSI Verkauf-Untergrenze
+input int      InpRSIHighSell   = {best_strat['rsi_high_s']}; // RSI Verkauf-Obergrenze
+input double   InpSLMult        = {best_strat['sl_mult']};   // Stop Loss (ATR x)
+input double   InpTPMult        = {best_strat['tp_mult']};   // Take Profit (ATR x)
+input double   InpBreakEvenAt   = {best_strat.get('break_even_at', 1.0)};  // Break-Even (ATR x, 0=aus)
+input int      InpMinScore      = {best_strat.get('min_score', 8)};  // Min. Confluence Score
+
+//── STRATEGIE-GEWICHTUNGEN ({stype}) ─────────────────────────────
+input int      W_EMA   = {W['ema']};   // EMA-Trend Gewicht
+input int      W_ADX   = {W['adx']};   // ADX-Staerke Gewicht
+input int      W_RSI   = {W['rsi']};   // RSI Gewicht
+input int      W_MACD  = {W['macd']};  // MACD Gewicht
+input int      W_BB    = {W['bb']};    // Bollinger Bands Gewicht
+input int      W_STOCH = {W['stoch']}; // Stochastic Gewicht
+
+//── GLOBALE VARIABLEN ─────────────────────────────────────────────
+CTrade trade;
+int    h_atr, h_rsi, h_adx, h_ema20, h_ema50, h_ema200, h_macd, h_bb, h_stoch;
+ulong  MAGIC = 20250601;
+
+//+------------------------------------------------------------------+
+int OnInit()
+  {{
+   trade.SetExpertMagicNumber(MAGIC);
+   h_atr    = iATR      (_Symbol, PERIOD_M15, 14);
+   h_rsi    = iRSI      (_Symbol, PERIOD_M15, 14, PRICE_CLOSE);
+   h_adx    = iADX      (_Symbol, PERIOD_M15, 14);
+   h_ema20  = iMA       (_Symbol, PERIOD_M15,  20, 0, MODE_EMA, PRICE_CLOSE);
+   h_ema50  = iMA       (_Symbol, PERIOD_M15,  50, 0, MODE_EMA, PRICE_CLOSE);
+   h_ema200 = iMA       (_Symbol, PERIOD_M15, 200, 0, MODE_EMA, PRICE_CLOSE);
+   h_macd   = iMACD     (_Symbol, PERIOD_M15,  12, 26, 9, PRICE_CLOSE);
+   h_bb     = iBands    (_Symbol, PERIOD_M15,  20, 0, 2.0, PRICE_CLOSE);
+   h_stoch  = iStochastic(_Symbol, PERIOD_M15,  5, 3, 3, MODE_SMA, STO_LOWHIGH);
+   if(h_atr == INVALID_HANDLE || h_rsi == INVALID_HANDLE)
+     {{ Alert("Fehler: Indikator-Handle ungueltig!"); return INIT_FAILED; }}
+   Print("CLAUDE+QUANT EA gestartet | Strategie: {stype} | WR={wr}% | Return={ret:+.1f}%");
+   return INIT_SUCCEEDED;
+  }}
+
+void OnDeinit(const int reason)
+  {{
+   int handles[] = {{h_atr,h_rsi,h_adx,h_ema20,h_ema50,h_ema200,h_macd,h_bb,h_stoch}};
+   for(int i=0; i<ArraySize(handles); i++) IndicatorRelease(handles[i]);
+  }}
+
+//+------------------------------------------------------------------+
+void OnTick()
+  {{
+   // Nur auf neue M15-Kerze reagieren
+   static datetime last_bar = 0;
+   datetime cur_bar = iTime(_Symbol, PERIOD_M15, 0);
+   if(cur_bar == last_bar) return;
+   last_bar = cur_bar;
+
+   // Break-Even pruefen
+   if(InpBreakEvenAt > 0.0) CheckBreakEven();
+
+   // Keine neue Position wenn bereits eine offen
+   if(PositionsTotal() > 0) return;
+
+   // Signal berechnen
+   int sig = GetSignal();
+   if(sig == 0) return;
+
+   // ATR-basierte Lot-Groesse (1% Risiko)
+   double atr = Buf(h_atr, 0, 1);
+   if(atr <= 0) return;
+   double sl_pts   = atr * InpSLMult;
+   double risk_usd = AccountInfoDouble(ACCOUNT_BALANCE) * (InpRiskPct / 100.0);
+   double csize    = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE);
+   double lot      = NormalizeDouble(risk_usd / (sl_pts * csize), 2);
+   lot = MathMax(lot, SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN));
+   lot = MathMin(lot, SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX));
+
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+   if(sig == 1)  // BUY
+      trade.Buy (lot, _Symbol, ask, ask - sl_pts, ask + atr * InpTPMult, "C+Q BUY");
+   else           // SELL
+      trade.Sell(lot, _Symbol, bid, bid + sl_pts, bid - atr * InpTPMult, "C+Q SELL");
+  }}
+
+//+------------------------------------------------------------------+
+// Confluence-Score Signal-System
+//+------------------------------------------------------------------+
+int GetSignal()
+  {{
+   double ema20  = Buf(h_ema20,  0, 1);
+   double ema50  = Buf(h_ema50,  0, 1);
+   double ema200 = Buf(h_ema200, 0, 1);
+   double rsi    = Buf(h_rsi,    0, 1);
+   double adx    = Buf(h_adx,    0, 1);
+   double macd_l = Buf(h_macd,   0, 1);  // MACD Linie
+   double macd_s = Buf(h_macd,   1, 1);  // Signal Linie
+   double bb_up  = Buf(h_bb,     1, 1);  // BB Upper
+   double bb_lo  = Buf(h_bb,     2, 1);  // BB Lower
+   double close  = Buf(h_bb,     0, 1);  // Mittelband ~ Close
+   double stk    = Buf(h_stoch,  0, 1);  // Stoch %K
+
+   if(ema20 == 0 || rsi == 0 || bb_up == 0) return 0;
+
+   int bs = 0, ss = 0;  // buy_score, sell_score
+
+   // EMA-Trend
+   if(ema20 > ema50 && ema50 > ema200) bs += W_EMA;
+   else if(ema20 < ema50 && ema50 < ema200) ss += W_EMA;
+
+   // ADX + Richtung
+   if(adx >= InpADXMin)
+     {{ if(macd_l > macd_s) bs += W_ADX; else ss += W_ADX; }}
+
+   // RSI
+   if(rsi >= InpRSILowBuy  && rsi <= InpRSIHighBuy)  bs += W_RSI;
+   if(rsi >= InpRSILowSell && rsi <= InpRSIHighSell) ss += W_RSI;
+
+   // MACD
+   if(macd_l > macd_s && macd_l > 0) bs += W_MACD;
+   else if(macd_l < macd_s && macd_l < 0) ss += W_MACD;
+
+   // Bollinger Bands
+   if(close < bb_lo * 1.0005) bs += W_BB;
+   if(close > bb_up * 0.9995) ss += W_BB;
+
+   // Stochastic
+   if(stk < 25) bs += W_STOCH;
+   if(stk > 75) ss += W_STOCH;
+
+   if(bs >= InpMinScore && bs > ss + 2) return  1;
+   if(ss >= InpMinScore && ss > bs + 2) return -1;
+   return 0;
+  }}
+
+//+------------------------------------------------------------------+
+// Break-Even: SL auf Entry wenn Gewinn >= BE_AT * ATR
+//+------------------------------------------------------------------+
+void CheckBreakEven()
+  {{
+   double atr = Buf(h_atr, 0, 1);
+   if(atr <= 0) return;
+   double trigger = atr * InpBreakEvenAt;
+
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {{
+      ulong ticket = PositionGetTicket(i);
+      if(!PositionSelectByTicket(ticket)) continue;
+      if(PositionGetInteger(POSITION_MAGIC)  != (long)MAGIC)  continue;
+      if(PositionGetString(POSITION_SYMBOL)  != _Symbol) continue;
+
+      double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+      double sl    = PositionGetDouble(POSITION_SL);
+      double tp    = PositionGetDouble(POSITION_TP);
+      long   ptype = PositionGetInteger(POSITION_TYPE);
+
+      if(ptype == POSITION_TYPE_BUY)
+        {{
+         double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+         if(bid - entry >= trigger && sl < entry - _Point)
+            trade.PositionModify(ticket, entry + _Point, tp);
+        }}
+      else
+        {{
+         double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+         if(entry - ask >= trigger && sl > entry + _Point)
+            trade.PositionModify(ticket, entry - _Point, tp);
+        }}
+     }}
+  }}
+
+//+------------------------------------------------------------------+
+// Hilfsfunktion: Indikator-Buffer auslesen
+//+------------------------------------------------------------------+
+double Buf(int handle, int buffer, int shift)
+  {{
+   double arr[1];
+   ArraySetAsSeries(arr, true);
+   if(CopyBuffer(handle, buffer, shift, 1, arr) <= 0) return 0.0;
+   return arr[0];
+  }}
+//+------------------------------------------------------------------+
+"""
+    return code
 
 
 if __name__ == "__main__":
