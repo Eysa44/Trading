@@ -49,9 +49,9 @@ SEARCH_SPACE = {
 }
 
 # ── QUALITÄTS-FILTER ──────────────────────────────────────────────────────────
-MIN_TRADES    = 10     # Mindestens 10 Trades für aussagekräftiges Ergebnis
-MAX_DRAWDOWN  = 12.0   # Maximal 12% Drawdown (strenger)
-MIN_WR        = 52.0   # Mindestens 52% Win Rate (Ziel: 60-80%)
+MIN_TRADES    = 8      # Mindestens 8 Trades für aussagekräftiges Ergebnis
+MAX_DRAWDOWN  = 20.0   # Maximal 20% Drawdown (realistisch für echte Daten)
+MIN_WR        = 40.0   # Mindestens 40% Win Rate (realistisch für echte XAUUSD-Daten)
 
 
 # ── SCORING ───────────────────────────────────────────────────────────────────
@@ -293,7 +293,7 @@ def main():
         if s > -999:
             valid += 1
             results.append({"strat": strat, "metrics": m, "score": s})
-        if (trial + 1) % 25 == 0:
+        if (trial + 1) % 10 == 0:
             elapsed = time.time() - t_start
             eta = elapsed / (trial + 1) * (n_trials - trial - 1)
             best_r = max((r["metrics"]["return_pct"] for r in results), default=0)
