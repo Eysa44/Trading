@@ -582,7 +582,9 @@ def run_backtest(candles, strat, balance=START_BALANCE):
 
 # ── METRIKEN ─────────────────────────────────────────────────────────────────
 
-def calc_metrics(trades, equity_curve, final_equity):
+def calc_metrics(trades, equity_curve, final_equity, initial_balance=None):
+    if initial_balance is None:
+        initial_balance = START_BALANCE
     if not trades:
         return {"error": "Keine Trades"}
 
@@ -628,12 +630,17 @@ def calc_metrics(trades, equity_curve, final_equity):
         t = pat_stats[p]["total"]
         pat_stats[p]["wr"] = round(pat_stats[p]["wins"] / t * 100, 1) if t else 0
 
+    return_pct   = round((final_equity - initial_balance) / initial_balance * 100, 2)
+    total_profit = round(final_equity - initial_balance, 2)
+
     return {
         "total_trades":    len(trades),
         "win_rate":        round(win_rate, 1),
         "profit_factor":   round(profit_factor, 2),
-        "total_profit":    round(final_equity - START_BALANCE, 2),
-        "return_pct":      round((final_equity - START_BALANCE) / START_BALANCE * 100, 2),
+        "start_balance":   round(initial_balance, 2),
+        "final_balance":   round(final_equity, 2),
+        "total_profit":    total_profit,
+        "return_pct":      return_pct,
         "max_drawdown":    round(max_dd, 1),
         "sharpe":          round(sharpe, 2),
         "avg_win":         round(sum(wins) / len(wins), 2)   if wins   else 0,
@@ -648,34 +655,41 @@ def calc_metrics(trades, equity_curve, final_equity):
 # ── AUSGABE ───────────────────────────────────────────────────────────────────
 
 def print_results(results):
-    print("\n" + "=" * 72)
+    start_bal = results.get("start_balance", START_BALANCE)
+    print("\n" + "=" * 82)
     print(f"  BACKTEST ERGEBNISSE  |  {SYMBOL}  |  {results['candles']} Kerzen M15")
-    print("=" * 72)
-    print(f"  {'STRATEGIE':<30} {'TRADES':>6} {'WR':>7} {'PF':>6} {'RETURN':>9} {'MAX DD':>8} {'SHARPE':>7}")
-    print("  " + "-" * 70)
+    print(f"  Startkapital: ${start_bal:,.2f}")
+    print("=" * 82)
+    print(f"  {'STRATEGIE':<20} {'TRADES':>6} {'WR':>7} {'PF':>6} {'RETURN':>9} {'START→ENDE':>22} {'MAX DD':>8} {'SHARPE':>7}")
+    print("  " + "-" * 80)
 
     best_return = max(s["metrics"].get("return_pct", -999) for s in results["strategies"])
 
     for s in results["strategies"]:
         m    = s["metrics"]
-        mark = " <-- BEST" if m.get("return_pct", -999) == best_return else ""
+        mark = " <--BEST" if m.get("return_pct", -999) == best_return else ""
         err  = m.get("error")
         if err:
-            print(f"  {s['name']:<30}  {err}")
+            print(f"  {s['name']:<20}  {err}")
             continue
-        ret_color = "+" if m["return_pct"] >= 0 else ""
+        ret_sign  = "+" if m["return_pct"] >= 0 else ""
+        profit    = m.get("total_profit", 0)
+        final_bal = m.get("final_balance", start_bal + profit)
+        p_sign    = "+" if profit >= 0 else ""
+        equity_str = f"${start_bal:.0f}→${final_bal:.2f} ({p_sign}${profit:.2f})"
         print(
-            f"  {s['name']:<30} "
+            f"  {s['name']:<20} "
             f"{m['total_trades']:>6} "
             f"{m['win_rate']:>6.1f}% "
             f"{m['profit_factor']:>6.2f} "
-            f"{ret_color}{m['return_pct']:>8.1f}% "
+            f"{ret_sign}{m['return_pct']:>8.1f}% "
+            f"{equity_str:>22} "
             f"{m['max_drawdown']:>7.1f}% "
             f"{m['sharpe']:>7.2f}"
             f"{mark}"
         )
 
-    print("=" * 72)
+    print("=" * 82)
 
     # Top Patterns der besten Strategie
     best = max(results["strategies"], key=lambda s: s["metrics"].get("return_pct", -999))
@@ -691,7 +705,7 @@ def print_results(results):
                 print(f"  {pat:<28} {stat['total']:>6} {stat['wr']:>8.1f}%")
 
     print(f"\n  Ergebnisse gespeichert: backtest_results.json")
-    print("=" * 72 + "\n")
+    print("=" * 82 + "\n")
 
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
@@ -739,14 +753,15 @@ def print_compare(results, candles_count):
 
 
 def main():
-    use_mt5  = "--mt5" in sys.argv
+    use_mt5  = "--mt5"     in sys.argv
     compare  = "--compare" in sys.argv
-    n_str    = next((sys.argv[sys.argv.index("--candles") + 1]
-                     for i, a in enumerate(sys.argv) if a == "--candles"), None)
-    n_candles = int(n_str) if n_str else 2000
+    n_str    = next((sys.argv[i+1] for i, a in enumerate(sys.argv) if a == "--candles"), None)
+    b_str    = next((sys.argv[i+1] for i, a in enumerate(sys.argv) if a == "--balance"), None)
+    n_candles = int(n_str)   if n_str else 2000
+    balance   = float(b_str) if b_str else START_BALANCE
 
     print(f"\n  CLAUDE + QUANT  |  Backtester v1.0")
-    print(f"  Symbol: {SYMBOL}  |  Startkapital: ${START_BALANCE:,.0f}")
+    print(f"  Symbol: {SYMBOL}  |  Startkapital: ${balance:,.2f}")
     print(f"  Kerzen: {n_candles}  (~{n_candles*15//60//24} Tage M15)\n")
 
     # Daten laden
@@ -758,25 +773,27 @@ def main():
         candles = make_xauusd_candles(n_candles)
 
     results = {
-        "timestamp": datetime.now().isoformat(),
-        "symbol":    SYMBOL,
-        "candles":   len(candles),
-        "data_source": "MT5" if (use_mt5 and MT5_AVAILABLE) else "Synthetisch",
-        "start_balance": START_BALANCE,
-        "strategies": [],
+        "timestamp":     datetime.now().isoformat(),
+        "symbol":        SYMBOL,
+        "candles":       len(candles),
+        "data_source":   "MT5" if (use_mt5 and MT5_AVAILABLE) else "Synthetisch",
+        "start_balance": balance,
+        "strategies":    [],
     }
 
     for strat in STRATEGIES:
         print(f"  Teste: {strat['name']} ...", end=" ", flush=True)
-        trades, equity_curve, final_equity = run_backtest(candles, strat)
-        metrics = calc_metrics(trades, equity_curve, final_equity)
+        trades, equity_curve, final_equity = run_backtest(candles, strat, balance=balance)
+        metrics = calc_metrics(trades, equity_curve, final_equity, initial_balance=balance)
         results["strategies"].append({
             "name":    strat["name"],
             "config":  strat,
             "metrics": metrics,
         })
         if "error" not in metrics:
-            print(f"{metrics['total_trades']} Trades, WR={metrics['win_rate']}%, Return={metrics['return_pct']:+.1f}%")
+            profit = metrics["total_profit"]
+            p_sign = "+" if profit >= 0 else ""
+            print(f"{metrics['total_trades']} Trades, WR={metrics['win_rate']}%, Return={metrics['return_pct']:+.1f}%  (${balance:.0f} → ${metrics['final_balance']:.2f}, {p_sign}${profit:.2f})")
         else:
             print(metrics["error"])
 

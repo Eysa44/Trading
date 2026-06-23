@@ -94,7 +94,7 @@ def score(m):
 
 # ── WALK-FORWARD TEST ────────────────────────────────────────────────────────
 
-def walk_forward_score(candles, strat, split=0.65):
+def walk_forward_score(candles, strat, split=0.65, balance=START_BALANCE):
     """
     Testet auf ersten 65% (In-Sample), validiert auf letzten 35% (Out-of-Sample).
     Verhindert Overfitting.
@@ -104,13 +104,12 @@ def walk_forward_score(candles, strat, split=0.65):
     test      = candles[split_idx:]
 
     if len(test) < 300:
-        # Zu wenig Daten fuer Walk-Forward, normaler Backtest
-        trades, eq, final = run_backtest(candles, strat)
-        return calc_metrics(trades, eq, final)
+        trades, eq, final = run_backtest(candles, strat, balance=balance)
+        return calc_metrics(trades, eq, final, initial_balance=balance)
 
-    _, _, _ = run_backtest(train, strat)          # Training (nur fuer Konsistenz)
-    trades_test, eq_test, final_test = run_backtest(test, strat)
-    m = calc_metrics(trades_test, eq_test, final_test)
+    _, _, _ = run_backtest(train, strat, balance=balance)
+    trades_test, eq_test, final_test = run_backtest(test, strat, balance=balance)
+    m = calc_metrics(trades_test, eq_test, final_test, initial_balance=balance)
     return m
 
 
@@ -147,52 +146,60 @@ def random_trial(seed=None):
 
 # ── AUSGABE ───────────────────────────────────────────────────────────────────
 
-def print_top(results, n=10):
+def print_top(results, n=10, balance=START_BALANCE):
     n_random = sum(1 for r in results if str(r["strat"].get("name", "")).startswith("R-"))
     n_evo    = sum(1 for r in results if str(r["strat"].get("name", "")).startswith("E-"))
     total_r  = len(results)
-    print("\n" + "=" * 80)
-    print(f"  TOP {n} STRATEGIEN  |  {SYMBOL}  |  Auto-Optimizer Ergebnisse")
-    print(f"  Phase: [Phase 1 Zufällig: {n_random} | Phase 2 Evolution: {n_evo} | Gesamt: {total_r}]")
-    print("=" * 80)
-    print(f"  {'#':>2}  {'STRATEGIE':>11}  {'ADX':>4}  {'SL':>4}  {'TP':>4}  "
-          f"{'SC':>3}  {'TRADES':>6}  {'WR':>7}  {'PF':>5}  {'RETURN':>8}  {'SCORE':>7}")
-    print("  " + "-" * 82)
+    print("\n" + "=" * 88)
+    print(f"  TOP {n} STRATEGIEN  |  {SYMBOL}  |  Startkapital: ${balance:,.2f}")
+    print(f"  Phase: [Zufällig: {n_random} | Evolution: {n_evo} | Gesamt: {total_r}]")
+    print("=" * 88)
+    print(f"  {'#':>2}  {'STRATEGIE':>11}  {'SL':>4}  {'TP':>4}  "
+          f"{'TRADES':>6}  {'WR':>7}  {'PF':>5}  {'RETURN':>8}  {'START→ENDE':>20}  {'SCORE':>7}")
+    print("  " + "-" * 88)
 
     for rank, r in enumerate(results[:n], 1):
-        s    = r["strat"]
-        m    = r["metrics"]
+        s     = r["strat"]
+        m     = r["metrics"]
         stype = s.get("strategy_type", "BALANCED")[:11]
-        sc    = s.get("min_score", 8)
         ret_sign = "+" if m["return_pct"] >= 0 else ""
+        profit   = m.get("total_profit", 0)
+        final_b  = m.get("final_balance", balance + profit)
+        p_sign   = "+" if profit >= 0 else ""
+        eq_str   = f"${balance:.0f}→${final_b:.2f}({p_sign}${profit:.2f})"
         print(
-            f"  {rank:>2}  {stype:>11}  {s['adx_min']:>4}  "
-            f"{s['sl_mult']:>4.1f}  {s['tp_mult']:>4.1f}  {sc:>3}  "
+            f"  {rank:>2}  {stype:>11}  "
+            f"{s['sl_mult']:>4.1f}  {s['tp_mult']:>4.1f}  "
             f"{m['total_trades']:>6}  {m['win_rate']:>6.1f}%  "
             f"{m['profit_factor']:>5.2f}  "
-            f"{ret_sign}{m['return_pct']:>7.1f}%  {r['score']:>7.4f}"
+            f"{ret_sign}{m['return_pct']:>7.1f}%  "
+            f"{eq_str:>20}  {r['score']:>7.4f}"
         )
 
-    print("=" * 80)
+    print("=" * 88)
     if results:
-        best  = results[0]
-        s     = best["strat"]
-        m     = best["metrics"]
+        best   = results[0]
+        s      = best["strat"]
+        m      = best["metrics"]
+        profit = m.get("total_profit", 0)
+        final_b = m.get("final_balance", balance + profit)
+        p_sign = "+" if profit >= 0 else ""
         print(f"\n  BESTE STRATEGIE:")
+        print(f"    Strategie-Typ  : {s.get('strategy_type', 'BALANCED')}")
         print(f"    ADX Threshold  : {s['adx_min']}")
         print(f"    RSI Buy        : {s['rsi_low_b']} - {s['rsi_high_b']}")
         print(f"    RSI Sell       : {s['rsi_low_s']} - {s['rsi_high_s']}")
         print(f"    SL / TP        : ATR x {s['sl_mult']} / ATR x {s['tp_mult']}")
         print(f"    Break-Even     : ATR x {s.get('break_even_at', 1.0)} (0=aus)")
-        print(f"    Strategie-Typ  : {s.get('strategy_type', 'BALANCED')}")
         print(f"    Confluence Min : {s.get('min_score', 8)} Punkte")
         print(f"    Win Rate       : {m['win_rate']}%")
-        print(f"    Return         : +{m['return_pct']}%")
+        print(f"    Kapital Start  : ${balance:,.2f}")
+        print(f"    Kapital Ende   : ${final_b:,.2f}  ({p_sign}${profit:,.2f}  /  {p_sign}{m['return_pct']}%)")
         print(f"    Max Drawdown   : {m['max_drawdown']}%")
         print(f"    Profit Factor  : {m['profit_factor']}")
         print(f"    Sharpe         : {m['sharpe']}")
         print(f"    Score          : {best['score']}")
-    print("=" * 80 + "\n")
+    print("=" * 88 + "\n")
 
 
 def apply_best_params(best_strat):
@@ -258,13 +265,15 @@ def crossover_strategy(p1, p2):
 def main():
     use_mt5      = "--mt5"   in sys.argv
     apply        = "--apply" in sys.argv
-    n_str        = next((sys.argv[i+1] for i, a in enumerate(sys.argv) if a == "--trials"), None)
+    n_str        = next((sys.argv[i+1] for i, a in enumerate(sys.argv) if a == "--trials"),  None)
     c_str        = next((sys.argv[i+1] for i, a in enumerate(sys.argv) if a == "--candles"), None)
-    n_trials     = int(n_str) if n_str else 150
-    n_candles    = int(c_str) if c_str else 5000
+    b_str        = next((sys.argv[i+1] for i, a in enumerate(sys.argv) if a == "--balance"), None)
+    n_trials     = int(n_str)   if n_str else 150
+    n_candles    = int(c_str)   if c_str else 5000
+    balance      = float(b_str) if b_str else START_BALANCE
 
     print(f"\n  CLAUDE + QUANT  |  Auto-Optimizer v1.0")
-    print(f"  Symbol: {SYMBOL}  |  Trials: {n_trials}  |  Kerzen: {n_candles}")
+    print(f"  Symbol: {SYMBOL}  |  Trials: {n_trials}  |  Kerzen: {n_candles}  |  Startkapital: ${balance:,.2f}")
     print(f"  Walk-Forward: Ja (65% Train / 35% Test)\n")
 
     # Daten laden
@@ -289,7 +298,7 @@ def main():
     for trial in range(n_random):
         strat = random_trial(seed=trial * 7 + 13)
         strat["name"] = f"R-{trial+1}"
-        m = walk_forward_score(candles, strat)
+        m = walk_forward_score(candles, strat, balance=balance)
         s = score(m)
         if s > -999:
             valid += 1
@@ -297,8 +306,12 @@ def main():
         if (trial + 1) % 10 == 0:
             elapsed = time.time() - t_start
             eta = elapsed / (trial + 1) * (n_trials - trial - 1)
-            best_r = max((r["metrics"]["return_pct"] for r in results), default=0)
-            print(f"  [{trial+1:>4}/{n_trials}]  Gueltig: {valid:>4}  Bester Return: {best_r:>+.1f}%  ETA: {int(eta)}s")
+            best_r  = max((r["metrics"]["return_pct"] for r in results), default=0)
+            best_fb = max((r["metrics"].get("final_balance", balance) for r in results), default=balance)
+            profit  = best_fb - balance
+            p_sign  = "+" if profit >= 0 else ""
+            print(f"  [{trial+1:>4}/{n_trials}]  Gueltig: {valid:>4}  Bester Return: {best_r:>+.1f}%  "
+                  f"(${balance:.0f}→${best_fb:.2f}, {p_sign}${profit:.2f})  ETA: {int(eta)}s")
 
     # Phase 2: Evolutionäre Verbesserung (30% der Versuche)
     results.sort(key=lambda x: x["score"], reverse=True)
@@ -308,22 +321,24 @@ def main():
         for evo in range(n_evolve):
             parent = random.choice(elite)["strat"]
             if evo % 3 == 0 and len(elite) >= 2:
-                # Kreuzung: kombiniere zwei Eltern
                 p2 = random.choice(elite)["strat"]
                 strat = crossover_strategy(parent, p2)
             else:
-                # Mutation: variiere einen Elternteil
                 strat = mutate_strategy(parent)
             strat["name"] = f"E-{evo+1}"
-            m = walk_forward_score(candles, strat)
+            m = walk_forward_score(candles, strat, balance=balance)
             s = score(m)
             if s > -999:
                 valid += 1
                 results.append({"strat": strat, "metrics": m, "score": s})
             if (evo + 1) % 10 == 0:
                 results.sort(key=lambda x: x["score"], reverse=True)
-                best_r = max((r["metrics"]["return_pct"] for r in results), default=0)
-                print(f"  [EVO {evo+1:>3}/{n_evolve}]  Gueltig: {valid:>4}  Bester Return: {best_r:>+.1f}%")
+                best_r  = max((r["metrics"]["return_pct"] for r in results), default=0)
+                best_fb = max((r["metrics"].get("final_balance", balance) for r in results), default=balance)
+                profit  = best_fb - balance
+                p_sign  = "+" if profit >= 0 else ""
+                print(f"  [EVO {evo+1:>3}/{n_evolve}]  Gueltig: {valid:>4}  Bester Return: {best_r:>+.1f}%  "
+                      f"(${balance:.0f}→${best_fb:.2f}, {p_sign}${profit:.2f})")
 
     # Sortieren nach Score
     results.sort(key=lambda x: x["score"], reverse=True)
@@ -331,7 +346,7 @@ def main():
     elapsed = time.time() - t_start
     print(f"\n  Fertig in {elapsed:.0f}s  |  {valid}/{n_trials} gueltige Strategien gefunden")
 
-    print_top(results, n=10)
+    print_top(results, n=10, balance=balance)
 
     # Alle Ergebnisse speichern
     out = {
