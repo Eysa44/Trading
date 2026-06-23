@@ -54,7 +54,7 @@ SEARCH_SPACE = {
 # ── QUALITÄTS-FILTER ──────────────────────────────────────────────────────────
 MIN_TRADES    = 8      # Mindestens 8 Trades für aussagekräftiges Ergebnis
 MAX_DRAWDOWN  = 20.0   # Maximal 20% Drawdown
-MIN_WR        = 60.0   # 60%+ Win Rate ansteuern (Ziel: 70-80%)
+MIN_WR        = 44.0   # Realistisches Minimum für XAUUSD (Scoring optimiert auf Max-WR)
 
 
 # ── SCORING ───────────────────────────────────────────────────────────────────
@@ -276,7 +276,7 @@ def main():
     n_candles    = int(c_str)   if c_str else 5000
     balance      = float(b_str) if b_str else START_BALANCE
 
-    print(f"\n  CLAUDE + QUANT  |  Auto-Optimizer v1.0  |  Ziel: 70-80% Win Rate")
+    print(f"\n  CLAUDE + QUANT  |  Auto-Optimizer v1.0  |  Optimiert auf Max Win Rate")
     print(f"  Symbol: {SYMBOL}  |  Trials: {n_trials}  |  Kerzen: {n_candles}  |  Startkapital: ${balance:,.2f}")
     print(f"  Walk-Forward: Ja (65% Train / 35% Test)  |  Min WR: {MIN_WR}%\n")
 
