@@ -591,22 +591,25 @@ def vol_confirmed(rates):
 # ── STRATEGIE-GEWICHTUNGEN ────────────────────────────────────────────────────
 # Jeder Typ betont andere Indikatoren — vom Optimizer gefunden.
 STRATEGY_WEIGHTS = {
-    # Ensemble: Mehrheitsvotum aller 7 Strategien (robustester Einstieg)
-    "ENSEMBLE":   dict(ema=2, adx=1, rsi=2, macd=2, bb=3, stoch=3, vwap=2, fib=2, ob=2, fvg=2, struct=1, pat=1),
-    # Ausgewogen: alle Indikatoren gleichmäßig gewichtet
-    "BALANCED":   dict(ema=2, adx=1, rsi=1, macd=1, bb=2, stoch=2, vwap=1, fib=2, ob=2, fvg=1, struct=1, pat=1),
-    # BB-Scalping: Bollinger-Bounce + Stochastic RSI (Mean-Reversion)
-    "BB_SCALP":   dict(ema=1, adx=1, rsi=1, macd=1, bb=4, stoch=3, vwap=1, fib=1, ob=1, fvg=1, struct=1, pat=1),
-    # Reines Scalping: BB + Stoch + VWAP + RSI, kein Fibonacci/OB (kurzfristig)
-    "SCALP":      dict(ema=1, adx=1, rsi=3, macd=1, bb=4, stoch=4, vwap=3, fib=0, ob=0, fvg=0, struct=1, pat=1),
-    # Fibonacci Swing: Fib-Retracements + Order Blocks (längere Trades)
-    "FIB_SWING":  dict(ema=2, adx=1, rsi=1, macd=1, bb=1, stoch=1, vwap=1, fib=5, ob=3, fvg=2, struct=2, pat=1),
-    # ICT/Smart Money: Order Blocks + Fair Value Gaps (institutionell)
-    "ICT_SMC":    dict(ema=1, adx=1, rsi=1, macd=1, bb=1, stoch=1, vwap=1, fib=2, ob=5, fvg=4, struct=2, pat=1),
-    # VWAP-Trend: Trend-Riding mit VWAP + EMA + MACD
-    "VWAP_TREND": dict(ema=3, adx=2, rsi=1, macd=2, bb=1, stoch=1, vwap=3, fib=1, ob=1, fvg=1, struct=2, pat=1),
-    # Momentum: Starke Bewegungen mit RSI + MACD + Stochastic
-    "MOMENTUM":   dict(ema=2, adx=1, rsi=2, macd=4, bb=1, stoch=3, vwap=1, fib=1, ob=1, fvg=1, struct=1, pat=1),
+    # ── ENSEMBLE: Mehrheitsvotum aller Strategien ──────────────────────────────
+    "ENSEMBLE":    dict(ema=2, adx=1, rsi=2, macd=2, bb=3, stoch=3, vwap=2, fib=2, ob=2, fvg=2, struct=1, pat=1),
+    # ── KLASSISCHE ELITE-METHODEN ─────────────────────────────────────────────
+    "BALANCED":    dict(ema=2, adx=1, rsi=1, macd=1, bb=2, stoch=2, vwap=1, fib=2, ob=2, fvg=1, struct=1, pat=1),
+    "BB_SCALP":    dict(ema=1, adx=1, rsi=1, macd=1, bb=4, stoch=3, vwap=1, fib=1, ob=1, fvg=1, struct=1, pat=1),
+    "SCALP":       dict(ema=1, adx=1, rsi=3, macd=1, bb=4, stoch=4, vwap=3, fib=0, ob=0, fvg=0, struct=1, pat=1),
+    "FIB_SWING":   dict(ema=2, adx=1, rsi=1, macd=1, bb=1, stoch=1, vwap=1, fib=5, ob=3, fvg=2, struct=2, pat=1),
+    "ICT_SMC":     dict(ema=1, adx=1, rsi=1, macd=1, bb=1, stoch=1, vwap=1, fib=2, ob=5, fvg=4, struct=2, pat=1),
+    "VWAP_TREND":  dict(ema=3, adx=2, rsi=1, macd=2, bb=1, stoch=1, vwap=3, fib=1, ob=1, fvg=1, struct=2, pat=1),
+    "MOMENTUM":    dict(ema=2, adx=1, rsi=2, macd=4, bb=1, stoch=3, vwap=1, fib=1, ob=1, fvg=1, struct=1, pat=1),
+    # ── NEU: WEITERE ELITE-METHODEN ───────────────────────────────────────────
+    # Mean Reversion an RSI/StochRSI-Extremen (Contrarian)
+    "REVERSAL":    dict(ema=1, adx=1, rsi=5, macd=1, bb=4, stoch=5, vwap=1, fib=1, ob=1, fvg=1, struct=1, pat=3),
+    # BB-Squeeze Breakout (Linda Raschke / Mark Minervini)
+    "BREAKOUT":    dict(ema=2, adx=4, rsi=1, macd=3, bb=5, stoch=1, vwap=2, fib=1, ob=2, fvg=2, struct=2, pat=1),
+    # Pure Price Action (Al Brooks / Lance Beggs)
+    "PRICE_ACTION":dict(ema=2, adx=1, rsi=1, macd=1, bb=1, stoch=1, vwap=1, fib=2, ob=3, fvg=2, struct=4, pat=5),
+    # Wyckoff Methode (Akkumulation/Distribution Phasen)
+    "WYCKOFF":     dict(ema=2, adx=2, rsi=1, macd=2, bb=3, stoch=1, vwap=3, fib=1, ob=2, fvg=1, struct=5, pat=1),
 }
 
 # ── ELITE INDICATORS ─────────────────────────────────────────────────────────

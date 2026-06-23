@@ -35,17 +35,18 @@ CONTRACT_SIZE = CONTRACT_SIZES.get(SYMBOL, 100)
 
 # ── PARAMETER-SUCHRAUM ────────────────────────────────────────────────────────
 SEARCH_SPACE = {
-    "adx_min":        [18, 20, 22, 24, 25, 27, 30, 33],
-    "rsi_low_b":      [35, 38, 40, 42, 45],
-    "rsi_high_b":     [55, 58, 60, 62, 65],
-    "rsi_low_s":      [30, 33, 35, 38, 40],
-    "rsi_high_s":     [50, 52, 55, 58, 60],
-    "sl_mult":        [1.0, 1.2, 1.5, 1.8, 2.0, 2.5],
-    "tp_mult":        [1.5, 2.0, 2.5, 3.0, 3.5, 4.0],   # Enger → höhere WR
+    "adx_min":        [15, 18, 20, 22, 24, 25, 27, 30, 33],
+    # Breiter RSI-Suchraum: deckt Trend (40-65) AND Reversal (20-38) ab
+    "rsi_low_b":      [20, 25, 28, 30, 35, 38, 40, 42, 45],
+    "rsi_high_b":     [35, 40, 45, 50, 55, 58, 60, 62, 65, 70],
+    "rsi_low_s":      [30, 33, 35, 38, 40, 55, 60, 62, 65],
+    "rsi_high_s":     [50, 52, 55, 58, 60, 65, 70, 75, 80],
+    "sl_mult":        [0.8, 1.0, 1.2, 1.5, 1.8, 2.0, 2.5],
+    "tp_mult":        [1.5, 2.0, 2.5, 3.0, 3.5, 4.0],
     "need_pattern":   [True, False],
-    "min_score":      [6, 7, 8, 9, 10, 11, 12],          # Confluence-Schwelle
-    "strategy_type":  STRATEGY_TYPES,                     # 6 Elite-Strategie-Typen
-    "break_even_at":  [0.0, 0.8, 1.0, 1.2, 1.5],         # 0 = deaktiviert
+    "min_score":      [5, 6, 7, 8, 9, 10, 11, 12],
+    "strategy_type":  STRATEGY_TYPES,                     # 12 Elite-Strategie-Typen
+    "break_even_at":  [0.0, 0.8, 1.0, 1.2, 1.5],
 }
 
 # ── QUALITÄTS-FILTER ──────────────────────────────────────────────────────────
