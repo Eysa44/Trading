@@ -578,6 +578,32 @@ datetime g_LastBar         = 0;
 int      g_DailyTrades     = 0;    // Trades heute geöffnet
 datetime g_LastOpenTime    = 0;    // Zeitpunkt letzter Trade-Eröffnung
 int      g_ConsecLosses    = 0;    // Aufeinanderfolgende Verluste
+int      g_Regime          = 0;    // 0=unbekannt 1=TREND 2=RANGE (choppy)
+
+//══════════════════════════════════════════════════════════════════
+//  ChoppinessIndex — erkennt ob Markt trendet oder seitwärts läuft
+//  CI < 38.2 = starker Trend | CI > 61.8 = choppy/ranging
+//  Wir verwenden 56.0 als pragmatischen Schwellenwert
+//══════════════════════════════════════════════════════════════════
+double ChoppinessIndex(int period = 14)
+  {{
+   double hh = iHigh(_Symbol, PERIOD_M15, iHighest(_Symbol, PERIOD_M15, MODE_HIGH, period, 1));
+   double ll = iLow (_Symbol, PERIOD_M15, iLowest (_Symbol, PERIOD_M15, MODE_LOW,  period, 1));
+   double range = hh - ll;
+   if(range < _Point) return 50.0;
+
+   double sumATR = 0;
+   for(int i = 1; i <= period; i++)
+     {{
+      double hi = iHigh (_Symbol, PERIOD_M15, i);
+      double lo = iLow  (_Symbol, PERIOD_M15, i);
+      double pc = iClose(_Symbol, PERIOD_M15, i + 1);
+      sumATR += MathMax(hi - lo, MathMax(MathAbs(hi - pc), MathAbs(lo - pc)));
+     }}
+
+   if(sumATR <= 0) return 50.0;
+   return 100.0 * MathLog10(sumATR / range) / MathLog10((double)period);
+  }}
 
 //══════════════════════════════════════════════════════════════════
 //  OnInit
@@ -759,6 +785,55 @@ void OnTick()
 //══════════════════════════════════════════════════════════════════
 int GetSignal()
   {{
+   //── Market Regime Detection (Choppiness Index) ───────────────
+   double ci = ChoppinessIndex(14);
+   g_Regime = (ci > 56.0) ? 2 : 1;  // 2=RANGE choppy, 1=TREND
+
+   //── RANGE MODE: BB-Bounce + RSI-Extreme ──────────────────────
+   //   Kein H4-Filter nötig — Range-Markt hat keinen Trend
+   if(g_Regime == 2)
+     {{
+      double rsiR   = Buf(hM_RSI,   0, 1);
+      double bb_upR = Buf(hM_BB,    1, 1);
+      double bb_loR = Buf(hM_BB,    2, 1);
+      double bb_midR= Buf(hM_BB,    0, 1);
+      double stkR   = Buf(hM_STOCH, 0, 1);
+      double stkDR  = Buf(hM_STOCH, 1, 1);
+      double adxR   = Buf(hM_ADX,   0, 1);
+      double closeR = iClose(_Symbol, PERIOD_M15, 1);
+      double openR  = iOpen (_Symbol, PERIOD_M15, 1);
+
+      if(bb_upR <= 0 || rsiR <= 0) return 0;
+      double pctbR = (bb_upR > bb_loR) ? (closeR - bb_loR) / (bb_upR - bb_loR) : 0.5;
+
+      // Range-Mode braucht schwächeren ADX (kein starker Trend)
+      if(adxR > 35) {{ g_Regime = 1; goto trend_mode; }}  // doch Trend erkannt
+
+      int rbs = 0, rss = 0;
+
+      // RSI-Extreme: Hauptsignal
+      if(rsiR < 30 && closeR < openR) rbs += 5;   // überverkauft → BUY
+      if(rsiR > 70 && closeR > openR) rss += 5;   // überkauft → SELL
+      if(rsiR < 35) rbs += 2;
+      if(rsiR > 65) rss += 2;
+
+      // BB-Bounce: zweites Hauptsignal
+      if(pctbR < 0.15) rbs += 4;   // am unteren Band
+      if(pctbR > 0.85) rss += 4;   // am oberen Band
+
+      // Stochastic-Bestätigung
+      if(stkR < 20 && stkR > stkDR) rbs += 3;
+      if(stkR > 80 && stkR < stkDR) rss += 3;
+
+      // Nur handeln wenn beide Indikatoren übereinstimmen
+      if(rbs >= 7 && rbs > rss + 2) return  1;
+      if(rss >= 7 && rss > rbs + 2) return -1;
+      return 0;
+     }}
+
+   trend_mode:
+   //── TREND MODE: originale Logik ──────────────────────────────
+
    //── H4 Trend-Filter ──────────────────────────────────────────
    int h4_bias = 0;
    if(InpUseH4Filter)
@@ -1145,8 +1220,12 @@ void ShowDashboard()
    TimeToStruct(TimeGMT(), gmt);
    bool in_sess = (gmt.hour >= InpSessionStart && gmt.hour < InpSessionEnd);
 
-   string h4_str = (h4e50 > h4e200) ? "BULLISH" : (h4e50 < h4e200 ? "BEARISH" : "NEUTRAL");
-   string sess_str = in_sess ? "AKTIV (London/NY)" : "WARTEN (Asian)";
+   string h4_str    = (h4e50 > h4e200) ? "BULLISH" : (h4e50 < h4e200 ? "BEARISH" : "NEUTRAL");
+   string sess_str  = in_sess ? "AKTIV (London/NY)" : "WARTEN (Asian)";
+   double ci_val    = ChoppinessIndex(14);
+   string reg_str   = (g_Regime == 2)
+                      ? StringFormat("RANGE  CI=%.1f (BB+RSI)", ci_val)
+                      : StringFormat("TREND  CI=%.1f (VWAP)",   ci_val);
 
    double day_pct = (g_DayStartBalance > 0) ?
       (balance - g_DayStartBalance) / g_DayStartBalance * 100.0 : 0.0;
@@ -1155,13 +1234,14 @@ void ShowDashboard()
 
    Comment(StringFormat(
       "╔══════════════════════════════════════╗\\n"
-      "║  CLAUDE QUANT ELITE v2.0             ║\\n"
+      "║  CLAUDE QUANT ELITE v3.0 ADAPTIVE    ║\\n"
       "║  Strategie : %-22s ║\\n"
       "╠══════════════════════════════════════╣\\n"
       "║  Balance  : %10.2f USD          ║\\n"
       "║  Equity   : %10.2f USD          ║\\n"
       "║  Tag P&L  : %+10.2f (%+.1f%%)      ║\\n"
       "╠══════════════════════════════════════╣\\n"
+      "║  REGIME   : %-22s ║\\n"
       "║  H4 Trend : %-22s ║\\n"
       "║  H1 RSI   : %5.1f                    ║\\n"
       "║  M15 RSI  : %5.1f                    ║\\n"
@@ -1172,7 +1252,7 @@ void ShowDashboard()
       "║  Risiko   : %-22s ║\\n"
       "╚══════════════════════════════════════╝",
       "{stype}", balance, equity, day_pl, day_pct,
-      h4_str, h1rsi, m15rsi, atr,
+      reg_str, h4_str, h1rsi, m15rsi, atr,
       sess_str, g_DailyTrades, InpMaxDailyTrades,
       g_ConsecLosses, InpMaxConsecLoss, risk_str));
   }}
