@@ -572,16 +572,60 @@ def run_backtest(candles, strat, balance=START_BALANCE):
     else:
         sig_cache = None
 
+    _TRAIL_ACTIVATE = 0.5   # Trail nach X×ATR Profit aktivieren (entspricht EA)
+    _TRAIL_DIST     = 1.2   # Trailing-Abstand in ATR
+
     for i in range(warmup, len(candles)):
         c = candles[i]
 
-        # Offenen Trade ueberpruefen
+        # Offenen Trade überprüfen
         if open_trade:
             be_at = strat.get("break_even_at", BREAK_EVEN_AT)
+            atr_e = open_trade["atr_v"]
+
+            # ── TP1: Quick partial close 50% (nur wenn noch nicht ausgelöst) ──
+            if not open_trade.get("tp1_hit", False):
+                tp1_d  = open_trade["tp1_dist"]
+                sl_d   = atr_e * strat["sl_mult"]
+                tp1_rr = tp1_d / sl_d if sl_d > 0 else 1.0
+                if open_trade["type"] == "BUY"  and c["high"] >= open_trade["entry"] + tp1_d:
+                    pnl_1 = open_trade["risk"] * 0.5 * tp1_rr
+                    equity += pnl_1
+                    trades.append({"pnl": pnl_1, "type": "BUY",  "result": "TP1",
+                                   "pattern": open_trade["pattern"], "i": i})
+                    open_trade["tp1_hit"]      = True
+                    open_trade["sl"]           = open_trade["entry"]
+                    open_trade["be_triggered"] = True
+                    open_trade["risk"]        *= 0.5   # Runner läuft mit halber Größe
+                elif open_trade["type"] == "SELL" and c["low"] <= open_trade["entry"] - tp1_d:
+                    pnl_1 = open_trade["risk"] * 0.5 * tp1_rr
+                    equity += pnl_1
+                    trades.append({"pnl": pnl_1, "type": "SELL", "result": "TP1",
+                                   "pattern": open_trade["pattern"], "i": i})
+                    open_trade["tp1_hit"]      = True
+                    open_trade["sl"]           = open_trade["entry"]
+                    open_trade["be_triggered"] = True
+                    open_trade["risk"]        *= 0.5
+
+            # ── ATR Trail für TP2 Runner (aktiviert nach TP1 + 0.5×ATR) ────────
+            if open_trade.get("tp1_hit", False):
+                trail_d = atr_e * _TRAIL_DIST
+                act_d   = atr_e * _TRAIL_ACTIVATE
+                if open_trade["type"] == "BUY":
+                    if c["close"] - open_trade["entry"] >= act_d:
+                        new_trail = c["close"] - trail_d
+                        if new_trail > open_trade["sl"]:
+                            open_trade["sl"] = new_trail
+                else:  # SELL
+                    if open_trade["entry"] - c["close"] >= act_d:
+                        new_trail = c["close"] + trail_d
+                        if open_trade["sl"] == 0 or new_trail < open_trade["sl"]:
+                            open_trade["sl"] = new_trail
+
+            # ── SL / TP2 Checks ─────────────────────────────────────────────────
             if open_trade["type"] == "BUY":
-                # Break-Even: SL auf Entry verschieben wenn BREAK_EVEN_AT × ATR im Profit
                 if be_at > 0 and not open_trade["be_triggered"]:
-                    be_level = open_trade["entry"] + open_trade["atr_v"] * be_at
+                    be_level = open_trade["entry"] + atr_e * be_at
                     if c["high"] >= be_level:
                         open_trade["sl"] = open_trade["entry"]
                         open_trade["be_triggered"] = True
@@ -600,7 +644,7 @@ def run_backtest(candles, strat, balance=START_BALANCE):
                     open_trade = None
             else:  # SELL
                 if be_at > 0 and not open_trade["be_triggered"]:
-                    be_level = open_trade["entry"] - open_trade["atr_v"] * be_at
+                    be_level = open_trade["entry"] - atr_e * be_at
                     if c["low"] <= be_level:
                         open_trade["sl"] = open_trade["entry"]
                         open_trade["be_triggered"] = True
@@ -634,10 +678,11 @@ def run_backtest(candles, strat, balance=START_BALANCE):
             atr_v = ind.get("atr", 0)
 
         if signal and atr_v > 0:
-            atr_v    = atr_v
             sl_dist  = atr_v * strat["sl_mult"]
             risk_usd = equity * (RISK_PCT / 100)
             lot      = max(risk_usd / (sl_dist * CONTRACT_SIZE), 0.01)
+            # TP1 quick target: min(tp_mult, 1.5)× but at least sl_mult (min 1:1 RR)
+            tp1_m    = max(min(strat.get("tp_mult", 2.5), 1.5), strat["sl_mult"])
 
             if signal == "BUY":
                 sl = c["close"] - sl_dist
@@ -658,6 +703,8 @@ def run_backtest(candles, strat, balance=START_BALANCE):
                 "be_triggered": False,
                 "pattern":      pattern,
                 "open_i":       i,
+                "tp1_dist":     atr_v * tp1_m,
+                "tp1_hit":      False,
             }
 
         equity_curve.append(round(equity, 2))

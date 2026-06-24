@@ -63,6 +63,14 @@ TIMEFRAME_H4 = 16388       # mt5.TIMEFRAME_H4
 SESSION_START = 7          # UTC-Stunde: London Open
 SESSION_END   = 17         # UTC-Stunde: NY Close
 
+# ── ELITE RISK MANAGEMENT ─────────────────────────────────────────────────────
+MAX_CONSEC_LOSSES    = 3     # Pause nach N aufeinanderfolgenden Verlusten
+DAILY_PROFIT_TARGET  = 2.0   # Stop bei +2% Tagesgewinn (0 = deaktiviert)
+TRAIL_ACTIVATE_ATR   = 0.5   # ATR Trail aktiviert nach X×ATR Profit
+TRAIL_DIST_ATR       = 1.2   # Trailing-Abstand in ATR-Einheiten
+RSI_CLOSE_SELL       = 20    # SELL-Positionen schließen wenn RSI < X (Bounce-Schutz)
+RSI_CLOSE_BUY        = 80    # BUY-Positionen schließen wenn RSI > X (Reversal-Schutz)
+
 # Contract sizes fuer Lot-Berechnung (Fallback wenn MT5 nicht verfuegbar)
 CONTRACT_SIZES = {
     "XAUUSD": 100,         # 1 Lot = 100 Unzen Gold
@@ -97,6 +105,12 @@ _learn = {
     "best_strategy":   "ENSEMBLE", # Auto-gewählte beste Strategie
 }
 _last_trade_count = 0
+
+_risk_state = {
+    "daily_start_balance": 0.0,
+    "daily_date":          "",
+    "consec_losses":       0,
+}
 
 
 def load_best_params():
@@ -493,6 +507,12 @@ def self_adjust():
             with _lock:
                 stype = _state.get("indicators", {}).get("strategy_type", "BALANCED")
             record_strategy_result(stype, d.profit)
+            # Konsekutive Verlust-Tracking
+            with _lock:
+                if d.profit < 0:
+                    _risk_state["consec_losses"] += 1
+                elif d.profit > 0:
+                    _risk_state["consec_losses"] = 0
 
     _last_trade_count = total
 
@@ -1264,6 +1284,98 @@ def check_breakeven(symbol):
                 _modify_sl(pos, new_sl)
 
 
+def check_trailing_stop(symbol):
+    """
+    ATR Trailing Stop — folgt dem Preis in Gewinnrichtung.
+    Aktiviert erst wenn TRAIL_ACTIVATE_ATR×ATR Profit erreicht (kein Früh-Stop).
+    """
+    if not MT5_AVAILABLE or TRAIL_DIST_ATR <= 0:
+        return
+    positions = mt5.positions_get(symbol=symbol)
+    if not positions:
+        return
+    atr_v = _state.get("indicators", {}).get("atr", 0)
+    if not atr_v or atr_v <= 0:
+        return
+    tick = mt5.symbol_info_tick(symbol)
+    if not tick:
+        return
+
+    trail_dist    = atr_v * TRAIL_DIST_ATR
+    activate_dist = atr_v * TRAIL_ACTIVATE_ATR
+
+    for pos in positions:
+        if pos.magic != MAGIC:
+            continue
+        if pos.type == 0:  # BUY: trail up as bid rises
+            profit_pts = tick.bid - pos.price_open
+            if profit_pts < activate_dist:
+                continue
+            new_sl = round(tick.bid - trail_dist, 5)
+            if new_sl > pos.sl + 0.01:
+                _modify_sl(pos, new_sl)
+        else:  # SELL: trail down as ask falls
+            profit_pts = pos.price_open - tick.ask
+            if profit_pts < activate_dist:
+                continue
+            new_sl = round(tick.ask + trail_dist, 5)
+            if pos.sl == 0 or new_sl < pos.sl - 0.01:
+                _modify_sl(pos, new_sl)
+
+
+def check_rsi_emergency_close(symbol):
+    """
+    Schließt profitable Positionen bei extremen RSI-Werten.
+    SELL bei RSI < 20 → Bounce droht → Gewinne sichern.
+    BUY bei RSI > 80 → Reversal droht → Gewinne sichern.
+    """
+    if not MT5_AVAILABLE:
+        return
+    positions = mt5.positions_get(symbol=symbol)
+    if not positions:
+        return
+    rates = mt5.copy_rates_from_pos(symbol, TIMEFRAME, 0, 30)
+    if rates is None or len(rates) < 20:
+        return
+    closes = [float(r["close"]) for r in rates]
+    rsi_v  = rsi(closes, 14)
+    tick   = mt5.symbol_info_tick(symbol)
+    if not tick:
+        return
+
+    for pos in positions:
+        if pos.magic != MAGIC:
+            continue
+        if pos.profit <= 0:
+            continue  # Nur profitable Positionen schließen
+        should_close = False
+        if pos.type == 1 and rsi_v < RSI_CLOSE_SELL:   # SELL, RSI überverkauft
+            should_close = True
+            reason = f"RSI={rsi_v:.1f} < {RSI_CLOSE_SELL} (Bounce droht)"
+        elif pos.type == 0 and rsi_v > RSI_CLOSE_BUY:  # BUY, RSI überkauft
+            should_close = True
+            reason = f"RSI={rsi_v:.1f} > {RSI_CLOSE_BUY} (Reversal droht)"
+
+        if should_close:
+            order_type  = mt5.ORDER_TYPE_BUY  if pos.type == 1 else mt5.ORDER_TYPE_SELL
+            close_price = tick.ask if pos.type == 1 else tick.bid
+            req = {
+                "action":       mt5.TRADE_ACTION_DEAL,
+                "position":     pos.ticket,
+                "symbol":       symbol,
+                "volume":       pos.volume,
+                "type":         order_type,
+                "price":        close_price,
+                "magic":        MAGIC,
+                "comment":      "CQ-RSI-CLOSE",
+                "type_time":    mt5.ORDER_TIME_GTC,
+                "type_filling": mt5.ORDER_FILLING_IOC,
+            }
+            result = mt5.order_send(req)
+            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                print(f"[RSI-CLOSE] #{pos.ticket} P&L=+{pos.profit:.2f} | {reason}")
+
+
 def update_account():
     if not MT5_AVAILABLE:
         return
@@ -1359,6 +1471,17 @@ def update_account():
     with _lock:
         _state["learn"] = json.loads(json.dumps(_learn))
 
+    # ── Tages-Reset: Startbalance für Tages-P&L-Tracking ──────────
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    with _lock:
+        if _risk_state["daily_date"] != today_str:
+            _risk_state["daily_date"]          = today_str
+            _risk_state["daily_start_balance"] = info.balance
+            _risk_state["consec_losses"]        = 0
+            print(f"[DAY] Neuer Tag: {today_str} | Start: ${info.balance:.2f}")
+        elif _risk_state["daily_start_balance"] == 0.0:
+            _risk_state["daily_start_balance"] = info.balance
+
 
 # ── HTTP API ──────────────────────────────────────────────────────────────────
 
@@ -1439,9 +1562,46 @@ def bot_loop():
 
     while True:
         try:
+            # ── MT5 Verbindungscheck & Reconnect ─────────────────────────
+            if MT5_AVAILABLE and not mt5.terminal_info():
+                print("[BOT] MT5 Verbindung unterbrochen — Reconnect...")
+                state_set("connected", False)
+                reconnected = False
+                for attempt in range(5):
+                    time.sleep(10 * (attempt + 1))
+                    if mt5.initialize():
+                        state_set("connected", True)
+                        reconnected = True
+                        print(f"[BOT] MT5 Reconnect OK (Versuch {attempt+1})")
+                        break
+                if not reconnected:
+                    state_set("status", "error: MT5 Verbindung verloren")
+                    time.sleep(60)
+                    continue
+
             update_account()
             check_breakeven(SYMBOL)
+            check_trailing_stop(SYMBOL)
+            check_rsi_emergency_close(SYMBOL)
             self_adjust()
+
+            # ── Elite Risiko-Guards ───────────────────────────────────────
+            with _lock:
+                consec    = _risk_state["consec_losses"]
+                daily_bal = _risk_state["daily_start_balance"]
+
+            if consec >= MAX_CONSEC_LOSSES:
+                print(f"[RISK] {consec} Verluste hintereinander — Pause aktiv!")
+                time.sleep(CHECK_EVERY)
+                continue
+
+            if DAILY_PROFIT_TARGET > 0 and daily_bal > 0:
+                bal_now = _state["account"].get("balance", daily_bal)
+                day_pct = (bal_now - daily_bal) / daily_bal * 100
+                if day_pct >= DAILY_PROFIT_TARGET:
+                    print(f"[RISK] Tages-Ziel +{day_pct:.1f}% erreicht — kein neuer Trade!")
+                    time.sleep(CHECK_EVERY)
+                    continue
 
             rates = get_bars(SYMBOL, TIMEFRAME, 250)
             if rates is not None:

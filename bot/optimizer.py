@@ -445,10 +445,10 @@ def generate_mql5_ea(best_strat, metrics, balance=10000.0):
     prof  = fb - balance
     p_s   = "+" if prof >= 0 else ""
 
-    tp_raw   = best_strat.get("tp_mult", 2.0)
-    tp1_mult = round(min(tp_raw, 1.5), 1)   # quick TP: max 1.5R → trifft häufiger → höhere WR
-    tp2_mult = round(tp_raw, 1)              # runner TP: optimizer's full target
     sl_mult  = round(best_strat.get("sl_mult", 1.5), 2)
+    tp_raw   = best_strat.get("tp_mult", 2.0)
+    tp1_mult = round(max(min(tp_raw, 1.5), sl_mult), 1)  # Quick TP1: max 1.5R, mind. 1:1 RR
+    tp2_mult = round(tp_raw, 1)              # runner TP: optimizer's full target
     confirm  = best_strat.get("confirm_bars", 1)   # 2-Kerzen-Bestätigung
     day_filt = best_strat.get("day_filter", True)  # Wochentag-Filter
     be_at    = round(best_strat.get("break_even_at", 1.0), 1)
@@ -500,6 +500,8 @@ input int     InpMaxPositions = 2;     // Max. offene Positionen (TP1+TP2)
 input int     InpMaxSpread    = 35;    // Max. Spread in Punkten
 input int     InpMaxDailyTrades= 2;    // Max. Trades pro Tag (1 Trade = TP1+TP2 Paar)
 input int     InpTradeCooldownH= 3;    // Std. Mindest-Pause zwischen Trades
+input int     InpMaxConsecLoss = 3;    // Pause nach N aufeinanderfolgenden Verlusten (0=aus)
+input double  InpDailyTarget  = 2.0;  // Stop bei +X% Tagesgewinn (0=aus)
 
 //── SESSION & WOCHENTAG ───────────────────────────────────────────
 input string  _Sec1           = "══ SESSION ══";
@@ -573,6 +575,7 @@ datetime g_DayStart        = 0;
 datetime g_LastBar         = 0;
 int      g_DailyTrades     = 0;    // Trades heute geöffnet
 datetime g_LastOpenTime    = 0;    // Zeitpunkt letzter Trade-Eröffnung
+int      g_ConsecLosses    = 0;    // Aufeinanderfolgende Verluste
 
 //══════════════════════════════════════════════════════════════════
 //  OnInit
@@ -640,6 +643,27 @@ void OnDeinit(const int reason)
   }}
 
 //══════════════════════════════════════════════════════════════════
+//  OnTradeTransaction — Consecutive Loss Tracking
+//══════════════════════════════════════════════════════════════════
+void OnTradeTransaction(const MqlTradeTransaction& trans,
+                        const MqlTradeRequest& request,
+                        const MqlTradeResult& result)
+  {{
+   if(trans.type != TRADE_TRANSACTION_DEAL_ADD) return;
+   ulong deal_ticket = trans.deal;
+   if(!HistoryDealSelect(deal_ticket)) return;
+   if(HistoryDealGetInteger(deal_ticket, DEAL_MAGIC) != (long)MAGIC) return;
+   double profit = HistoryDealGetDouble(deal_ticket, DEAL_PROFIT);
+   if(profit == 0) return;
+   if(profit < 0)
+      g_ConsecLosses++;
+   else
+      g_ConsecLosses = 0;
+   PrintFormat("DEAL | Profit=%.2f | Aufein. Verluste=%d / Max=%d",
+               profit, g_ConsecLosses, InpMaxConsecLoss);
+  }}
+
+//══════════════════════════════════════════════════════════════════
 //  OnTick — Haupt-Logik
 //══════════════════════════════════════════════════════════════════
 void OnTick()
@@ -653,6 +677,7 @@ void OnTick()
       g_DayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
       g_DayStart        = TimeCurrent();
       g_DailyTrades     = 0;  // Tages-Zähler zurücksetzen
+      g_ConsecLosses    = 0;  // Verlustserie mit neuem Tag zurücksetzen
      }}
 
    //── Position-Verwaltung (jeden Tick) ─────────────────────────
@@ -709,6 +734,16 @@ void OnTick()
    atr_avg /= 20.0;
    if(atr > atr_avg * 3.0) return;
 
+   // Konsekutive Verlust-Limit: Pause nach N Verlusten in Folge
+   if(InpMaxConsecLoss > 0 && g_ConsecLosses >= InpMaxConsecLoss) return;
+
+   // Tages-Gewinn-Ziel: kein neuer Trade nach Ziel-Erreichen
+   if(InpDailyTarget > 0.0 && g_DayStartBalance > 0)
+     {{
+      double day_pct = (balance - g_DayStartBalance) / g_DayStartBalance * 100.0;
+      if(day_pct >= InpDailyTarget) return;
+     }}
+
    //── Signal holen ─────────────────────────────────────────────
    int sig = GetSignal();
    if(sig == 0) return;
@@ -736,7 +771,8 @@ int GetSignal()
          if(h4e50 > h4e200 && h4c > h4e50)  h4_bias =  1;
          if(h4e50 < h4e200 && h4c < h4e50)  h4_bias = -1;
         }}
-      if(h4adx < 15) return 0;  // H4 seitwärts → kein Trade
+      if(h4adx < 15) return 0;   // H4 seitwärts → kein Trade
+      if(h4_bias == 0) return 0; // H4 Hard Gate: kein Trade ohne klare Trendrichtung
      }}
 
    //── H1 Momentum-Filter ───────────────────────────────────────
@@ -871,6 +907,13 @@ int GetSignal()
    int raw_sig = 0;
    if(bs >= InpMinScore && bs > ss + 2) raw_sig =  1;
    if(ss >= InpMinScore && ss > bs + 2) raw_sig = -1;
+
+   // H4 Hard Gate: Signal MUSS in H4-Trendrichtung gehen
+   if(InpUseH4Filter && raw_sig != 0 && h4_bias != 0)
+     {{
+      if(h4_bias ==  1 && raw_sig == -1) return 0;  // H4 bullish → kein SELL
+      if(h4_bias == -1 && raw_sig ==  1) return 0;  // H4 bearish → kein BUY
+     }}
 
    // 2-Kerzen-Bestätigung: Signal muss auf vorheriger Kerze ebenfalls aktiv gewesen sein
    if(InpConfirmBars >= 2 && raw_sig != 0)
@@ -1103,6 +1146,11 @@ void ShowDashboard()
    string h4_str = (h4e50 > h4e200) ? "BULLISH" : (h4e50 < h4e200 ? "BEARISH" : "NEUTRAL");
    string sess_str = in_sess ? "AKTIV (London/NY)" : "WARTEN (Asian)";
 
+   double day_pct = (g_DayStartBalance > 0) ?
+      (balance - g_DayStartBalance) / g_DayStartBalance * 100.0 : 0.0;
+   string risk_str = (InpMaxConsecLoss > 0 && g_ConsecLosses >= InpMaxConsecLoss) ?
+      "PAUSE" : "OK";
+
    Comment(StringFormat(
       "╔══════════════════════════════════════╗\\n"
       "║  CLAUDE QUANT ELITE v2.0             ║\\n"
@@ -1110,7 +1158,7 @@ void ShowDashboard()
       "╠══════════════════════════════════════╣\\n"
       "║  Balance  : %10.2f USD          ║\\n"
       "║  Equity   : %10.2f USD          ║\\n"
-      "║  Tag P&L  : %+10.2f USD         ║\\n"
+      "║  Tag P&L  : %+10.2f (%+.1f%%)      ║\\n"
       "╠══════════════════════════════════════╣\\n"
       "║  H4 Trend : %-22s ║\\n"
       "║  H1 RSI   : %5.1f                    ║\\n"
@@ -1118,11 +1166,13 @@ void ShowDashboard()
       "║  ATR M15  : %8.2f                ║\\n"
       "╠══════════════════════════════════════╣\\n"
       "║  Session  : %-22s ║\\n"
-      "║  Positionen: %2d  | Trades heute: %2d  ║\\n"
+      "║  Trades heute: %2d/%2d  Konse.V.: %2d/%2d ║\\n"
+      "║  Risiko   : %-22s ║\\n"
       "╚══════════════════════════════════════╝",
-      "{stype}", balance, equity, day_pl,
+      "{stype}", balance, equity, day_pl, day_pct,
       h4_str, h1rsi, m15rsi, atr,
-      sess_str, CountMyPositions(), g_DailyTrades));
+      sess_str, g_DailyTrades, InpMaxDailyTrades,
+      g_ConsecLosses, InpMaxConsecLoss, risk_str));
   }}
 
 //══════════════════════════════════════════════════════════════════
