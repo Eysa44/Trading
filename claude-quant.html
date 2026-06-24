@@ -827,6 +827,7 @@ function applyRealData(d) {
   const ind = d.indicators || {};
   const lrn = d.learn     || {};
   const cur = acc.currency || 'USD';
+  const price = pr.bid || pr.ask || 0;  // fix: used in VWAP/OB status checks below
 
   // ── ACCOUNT ──
   set('acctChannel', (acc.name || '—') + ' · ' + (acc.server || 'MT5'));
@@ -993,7 +994,7 @@ function applyRealData(d) {
     const c = statusColors[val];
     set(id, val, c || 'var(--text)');
   });
-  set('sessionBadge', ses ? 'SESSION AKTIV' : 'OFFLINE', ses ? 'var(--green)' : 'var(--red)');
+  set('sessionBadge', ses ? 'SESSION AKTIV' : 'SESSION INAKTIV', ses ? 'var(--green)' : 'var(--yellow)');
 
   // ── TRADE PERFORMANCE ──
   set('perfTotal',   sign(totalProfit) + '$' + Math.abs(totalProfit).toFixed(2) + ' ' + cur,
@@ -1044,6 +1045,223 @@ function applyRealData(d) {
 
 setInterval(fetchBotData, 3000);
 fetchBotData();
+
+// ── Yahoo Finance XAUUSD (Fallback wenn Bot offline) ─────────────────────
+let yfCandles  = [];
+let yfLastPrice = 0;
+
+async function fetchYFData() {
+  if (botConnected) return;
+  try {
+    const url = 'https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF' +
+                '?interval=15m&range=2d&includeTimestamps=true';
+    const res  = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    const json = await res.json();
+    const r    = json?.chart?.result?.[0];
+    if (!r) return;
+    const ts = r.timestamp || [];
+    const q  = r.indicators?.quote?.[0] || {};
+    const candles = ts.map((t, i) => ({
+      t: t * 1000,
+      o: q.open?.[i]  || 0, h: q.high?.[i]  || 0,
+      l: q.low?.[i]   || 0, c: q.close?.[i] || 0,
+      v: q.volume?.[i]|| 0
+    })).filter(c => c.c > 0);
+    if (candles.length < 20) return;
+
+    yfCandles   = candles;
+    yfLastPrice = candles[candles.length - 1].c;
+    chartData   = yfCandles;
+    drawChart(yfCandles);
+
+    const ind = calcAllIndicators(yfCandles);
+    applyOfflineIndicators(ind, yfLastPrice);
+
+    // Ticker updates
+    set('btcPrice',   yfLastPrice.toFixed(2) + ' (Yahoo Finance)', 'var(--orange)');
+    set('tkLive',     'YAHOO FINANCE', 'var(--orange)');
+    document.querySelector('.live-dot').style.background = 'var(--orange)';
+    set('sessionBadge', 'YAHOO FINANCE', 'var(--orange)');
+    set('acctChannel', 'XAUUSD · Gold Futures (GC=F)');
+    set('pfValue', '—');
+  } catch(e) { /* Yahoo Finance nicht erreichbar */ }
+}
+
+// ── Client-Side Indikator-Berechnungen ───────────────────────────────────
+
+function calcRSI(closes, period = 14) {
+  if (closes.length < period + 1) return 50;
+  let gains = 0, losses = 0;
+  for (let i = closes.length - period; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d > 0) gains += d; else losses -= d;
+  }
+  const rs = gains / (losses || 1e-9);
+  return 100 - 100 / (1 + rs);
+}
+
+function calcATR(highs, lows, closes, period = 14) {
+  const trs = [];
+  for (let i = 1; i < highs.length; i++)
+    trs.push(Math.max(highs[i] - lows[i],
+      Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1])));
+  const seg = trs.slice(-period);
+  return seg.reduce((a, b) => a + b, 0) / seg.length;
+}
+
+function calcMACD(closes, fast = 12, slow = 26, sig = 9) {
+  const e12   = emaArr(closes, fast);
+  const e26   = emaArr(closes, slow);
+  const mLine = e12.map((v, i) => v - e26[i]);
+  const sLine = emaArr(mLine, sig);
+  const n     = mLine.length;
+  return { macd: mLine[n-1], signal: sLine[n-1], hist: mLine[n-1] - sLine[n-1] };
+}
+
+function calcADX(highs, lows, closes, period = 14) {
+  const n = highs.length;
+  if (n < period + 2) return 20;
+  let dmps = [], dmns = [], atrs = [];
+  for (let i = 1; i < n; i++) {
+    const dmp = Math.max(highs[i]  - highs[i-1], 0);
+    const dmn = Math.max(lows[i-1] - lows[i],    0);
+    const tr  = Math.max(highs[i]-lows[i],
+      Math.abs(highs[i]-closes[i-1]), Math.abs(lows[i]-closes[i-1]));
+    dmps.push(dmp > dmn ? dmp : 0);
+    dmns.push(dmn > dmp ? dmn : 0);
+    atrs.push(tr);
+  }
+  const smDmp = dmps.slice(-period).reduce((a,b)=>a+b, 0);
+  const smDmn = dmns.slice(-period).reduce((a,b)=>a+b, 0);
+  const smAtr = atrs.slice(-period).reduce((a,b)=>a+b, 0) || 1;
+  const pdi = 100 * smDmp / smAtr, mdi = 100 * smDmn / smAtr;
+  return 100 * Math.abs(pdi - mdi) / ((pdi + mdi) || 1);
+}
+
+function calcBB(closes, period = 20, dev = 2) {
+  const seg = closes.slice(-period);
+  const mid = seg.reduce((a, b) => a + b, 0) / period;
+  const std = Math.sqrt(seg.reduce((a, b) => a + (b - mid) ** 2, 0) / period);
+  const last = closes[closes.length - 1];
+  const upper = mid + dev * std, lower = mid - dev * std;
+  const pctb  = std ? (last - lower) / (upper - lower) : 0.5;
+  const bw    = std ? (upper - lower) / mid * 100 : 0;
+  return { upper, mid, lower, pctb, bw };
+}
+
+function calcStoch(highs, lows, closes, kPer = 14, dPer = 3) {
+  if (closes.length < kPer + dPer) return { k: 50, d: 50 };
+  const kArr = [];
+  for (let i = kPer - 1; i < closes.length; i++) {
+    const h = Math.max(...highs.slice(i - kPer + 1, i + 1));
+    const l = Math.min(...lows.slice(i  - kPer + 1, i + 1));
+    kArr.push(l === h ? 50 : 100 * (closes[i] - l) / (h - l));
+  }
+  const dArr = kArr.slice(-(dPer + 1));
+  const dVal = dArr.reduce((a, b) => a + b, 0) / dArr.length;
+  return { k: kArr[kArr.length - 1], d: dVal };
+}
+
+function calcAllIndicators(candles) {
+  const closes = candles.map(c => c.c);
+  const highs  = candles.map(c => c.h);
+  const lows   = candles.map(c => c.l);
+  const n = closes.length;
+  const e20 = emaArr(closes, 20);
+  const e50 = emaArr(closes, Math.min(50, n));
+  const e200= emaArr(closes, Math.min(200, n));
+  return {
+    ema20:    e20[n-1],  ema50: e50[n-1],  ema200: e200[n-1],
+    rsi:      calcRSI(closes, 14),
+    atr:      calcATR(highs, lows, closes, 14),
+    macd:     calcMACD(closes),
+    adx:      calcADX(highs, lows, closes, 14),
+    bb:       calcBB(closes, 20, 2),
+    stoch:    calcStoch(highs, lows, closes, 14, 3),
+  };
+}
+
+function applyOfflineIndicators(ind, price) {
+  const struct = ind.ema20 > ind.ema50 ? 'bullish' : 'bearish';
+  const macdH  = ind.macd.hist;
+  const bb     = ind.bb;
+  const stoch  = ind.stoch;
+
+  const statusColors = {
+    'BULLISH ✓':'var(--green)', 'BEARISH ✓':'var(--red)', 'STARK ✓':'var(--green)',
+    'OK ✓':'var(--green)', 'TREND ✓':'var(--green)', 'SCHWACH ✗':'var(--red)',
+    'AKTIV':'var(--yellow)', 'UEBERKAUFT':'var(--red)', 'UEBERVERKAUFT':'var(--red)',
+    'NEUTRAL':'var(--dim)', 'KEY LEVEL ⚡':'var(--yellow)', 'SQUEEZE ⚡':'var(--yellow)',
+    'OVERSOLD BOUNCE ✓':'var(--green)', 'OVERBOUGHT REJECT ✓':'var(--red)',
+    'OVERBOUGHT':'var(--orange)', 'OVERSOLD':'var(--orange)',
+    'OVERSOLD ✓':'var(--green)', 'OVERBOUGHT ✓':'var(--red)',
+    'BEARISH':'var(--red)', 'BULLISH':'var(--green)',
+  };
+
+  const bbSt  = bb.pctb < 0.2 ? 'OVERSOLD BOUNCE ✓' : bb.pctb > 0.8 ? 'OVERBOUGHT REJECT ✓' :
+                bb.bw < 1.0 ? 'SQUEEZE ⚡' : 'NORMAL';
+  const stSt  = stoch.k < 25 ? 'OVERSOLD' : stoch.k > 75 ? 'OVERBOUGHT' : 'NEUTRAL';
+  const adxTh = 25;
+
+  const rows = [
+    ['indEmaVal',      ind.ema20.toFixed(2)],
+    ['indEmaStatus',   ind.ema20 > ind.ema50 && ind.ema50 > ind.ema200 ? 'BULLISH ✓' :
+                       ind.ema20 < ind.ema50 && ind.ema50 < ind.ema200 ? 'BEARISH ✓' : 'NEUTRAL'],
+    ['indAdxVal',      ind.adx.toFixed(1)],
+    ['indAdxStatus',   ind.adx >= adxTh ? 'STARK ✓' : 'SCHWACH ✗'],
+    ['indRsiVal',      ind.rsi.toFixed(1)],
+    ['indRsiStatus',   ind.rsi > 70 ? 'UEBERKAUFT' : ind.rsi < 30 ? 'UEBERVERKAUFT' : 'OK ✓'],
+    ['indMacdVal',     macdH.toFixed(4)],
+    ['indMacdStatus',  macdH > 0 ? 'BULLISH ✓' : macdH < 0 ? 'BEARISH ✓' : '—'],
+    ['indStructVal',   struct.toUpperCase()],
+    ['indStructStatus', 'TREND ✓'],
+    ['indAtrVal',      ind.atr.toFixed(2)],
+    ['indAtrStatus',   'SL:' + (ind.atr * 1.5).toFixed(2) + ' TP:' + (ind.atr * 3.0).toFixed(2)],
+    ['indBBVal',       '%B=' + (bb.pctb * 100).toFixed(0) + '% BW=' + bb.bw.toFixed(1)],
+    ['indBBStatus',    bbSt],
+    ['indStochVal',    'K=' + stoch.k.toFixed(0) + ' D=' + stoch.d.toFixed(0)],
+    ['indStochStatus', stSt],
+    ['indVwapVal',     '—'], ['indVwapStatus', '—'],
+    ['indFibVal',      '—'], ['indFibStatus',  '—'],
+    ['indOBVal',       '—'], ['indOBStatus',   'KEIN OB'],
+    ['indFVGVal',      '—'], ['indFVGStatus',  'KEIN FVG'],
+    ['indH4Val',       struct.toUpperCase()],
+    ['indH4Status',    struct === 'bullish' ? 'BULLISH ✓' : 'BEARISH ✓'],
+    ['indPatternVal',  'kein Pattern'], ['indPatternStatus', '—'],
+  ];
+  rows.forEach(([id, val]) => set(id, val, statusColors[val] || 'var(--text)'));
+
+  // Chart footer
+  set('cfAdx',  ind.adx.toFixed(1) + (ind.adx >= adxTh ? ' ✓' : ' ✗'),
+                ind.adx >= adxTh ? 'var(--green)' : 'var(--red)');
+  set('cfRsi',  ind.rsi.toFixed(1),
+                ind.rsi > 70 || ind.rsi < 30 ? 'var(--red)' : 'var(--text)');
+  set('cfH4',   struct.toUpperCase(),
+                struct === 'bullish' ? 'var(--green)' : 'var(--red)');
+
+  // Ticker bar
+  const h4col = struct === 'bullish' ? 'var(--green)' : 'var(--red)';
+  set('tkH4', 'H4: ' + struct.toUpperCase(), h4col);
+
+  // Confluence score
+  let bScore = 0, sScore = 0;
+  if (ind.ema20 > ind.ema50) bScore += 3; else sScore += 3;
+  if (ind.rsi < 50) bScore += 1; else sScore += 1;
+  if (macdH > 0)   bScore += 2; else sScore += 2;
+  if (ind.adx >= adxTh) { bScore += 1; sScore += 1; }
+  if (bb.pctb < 0.3) bScore += 1; else if (bb.pctb > 0.7) sScore += 1;
+  if (stoch.k < 25) bScore += 2; else if (stoch.k > 75) sScore += 2;
+  set('scoreBar_buy',  bScore, bScore >= 6 ? 'var(--green)' : 'var(--dim)');
+  set('scoreBar_sell', sScore, sScore >= 6 ? 'var(--red)' : 'var(--dim)');
+  const confText = bScore > sScore + 2 ? '▲ BUY SETUP' :
+                   sScore > bScore + 2 ? '▼ SELL SETUP' : 'NEUTRAL ZONE';
+  const confCol  = bScore > sScore + 2 ? 'var(--green)' :
+                   sScore > bScore + 2 ? 'var(--red)' : 'var(--dim)';
+  set('confluenceResult', confText, confCol);
+}
+
+fetchYFData();
+setInterval(fetchYFData, 60000);
 
 // ── XAUUSD M15 Candlestick Chart ─────────────────────────
 const chartCanvas = document.getElementById('candleChart');
@@ -1177,14 +1395,15 @@ function drawChart(candles) {
 
 function drawSimChart() {
   if (botConnected && chartData.length > 5) { drawChart(chartData); return; }
-  // Simulation wenn Bot offline
+  if (!botConnected && yfCandles.length > 5) { drawChart(yfCandles); return; }
+  // Simulation nur wenn weder Bot noch Yahoo Finance verfügbar
   const sim = [];
-  let p = 3280;
+  let p = yfLastPrice || 3420;  // aktueller Gold-Preis als Basis
   for (let i = 0; i < 60; i++) {
-    const o = p, m = (Math.random() - 0.48) * 3;
+    const o = p, m = (Math.random() - 0.48) * 4;
     const c = o + m;
-    sim.push({ o, h: Math.max(o,c)+Math.random()*1.2,
-               l: Math.min(o,c)-Math.random()*1.2, c, v: Math.floor(Math.random()*3000+500) });
+    sim.push({ o, h: Math.max(o,c)+Math.random()*2,
+               l: Math.min(o,c)-Math.random()*2, c, v: Math.floor(Math.random()*3000+500) });
     p = c;
   }
   drawChart(sim);
