@@ -471,6 +471,17 @@ CTrade trade;
 int    h_atr, h_rsi, h_adx, h_ema20, h_ema50, h_ema200, h_macd, h_bb, h_stoch;
 ulong  MAGIC = 20250601;
 
+//── SESSION-FILTER ────────────────────────────────────────────────
+input int  InpSessionStart = 7;   // Session Start (UTC Stunde, London Open)
+input int  InpSessionEnd   = 20;  // Session End   (UTC Stunde, NY Close)
+
+bool InTradingSession()
+  {{
+   MqlDateTime dt;
+   TimeToStruct(TimeGMT(), dt);
+   return (dt.hour >= InpSessionStart && dt.hour < InpSessionEnd);
+  }}
+
 //+------------------------------------------------------------------+
 int OnInit()
   {{
@@ -505,11 +516,14 @@ void OnTick()
    if(cur_bar == last_bar) return;
    last_bar = cur_bar;
 
-   // Break-Even pruefen
+   // Break-Even pruefen (immer, auch außerhalb Session)
    if(InpBreakEvenAt > 0.0) CheckBreakEven();
 
    // Keine neue Position wenn bereits eine offen
    if(PositionsTotal() > 0) return;
+
+   // NUR in London/NY Session handeln (wie Python-Bot)
+   if(!InTradingSession()) return;
 
    // Signal berechnen
    int sig = GetSignal();
@@ -578,6 +592,13 @@ int GetSignal()
    // Stochastic
    if(stk < 25) bs += W_STOCH;
    if(stk > 75) ss += W_STOCH;
+
+   // Volumen-Filter: nur handeln wenn Volumen > Durchschnitt
+   long cur_vol = iVolume(_Symbol, PERIOD_M15, 1);
+   long avg_vol = 0;
+   for(int v = 2; v <= 21; v++) avg_vol += iVolume(_Symbol, PERIOD_M15, v);
+   avg_vol /= 20;
+   if(avg_vol > 0 && cur_vol < avg_vol * 0.8) return 0;  // zu wenig Volumen
 
    if(bs >= InpMinScore && bs > ss + 2) return  1;
    if(ss >= InpMinScore && ss > bs + 2) return -1;
