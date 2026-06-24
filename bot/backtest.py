@@ -518,6 +518,37 @@ def precompute_signals(candles, strat):
 
         signals[i] = (sig, atr_v)
 
+    # 2-Kerzen-Bestätigung: Signal nur wenn auch vorherige Kerze gleiches Signal hatte
+    confirm_bars = strat.get("confirm_bars", 1)
+    if confirm_bars >= 2:
+        for i in range(warmup + 1, n):
+            if signals[i] and signals[i-1]:
+                if signals[i][0] != signals[i-1][0]:
+                    signals[i] = None   # Richtung gewechselt → kein Einstieg
+            elif signals[i] and not signals[i-1]:
+                signals[i] = None       # Kein vorangehendes Signal → warten
+
+    # Wochentag-Filter: Montag-Open und Freitag-Close meiden
+    day_filter = strat.get("day_filter", False)
+    if day_filter:
+        import datetime as dt
+        for i in range(warmup, n):
+            if not signals[i]:
+                continue
+            t = candles[i].get("time")
+            if t is None:
+                continue
+            try:
+                d = dt.datetime.utcfromtimestamp(int(t))
+                # Montag vor 10:00 UTC überspringen
+                if d.weekday() == 0 and d.hour < 10:
+                    signals[i] = None
+                # Freitag ab 17:00 UTC überspringen
+                elif d.weekday() == 4 and d.hour >= 17:
+                    signals[i] = None
+            except Exception:
+                pass
+
     return signals
 
 

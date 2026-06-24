@@ -1,16 +1,16 @@
 //+------------------------------------------------------------------+
 //|  CLAUDE QUANT ELITE v2.0  —  XAUUSD M15                        |
 //|  Multi-Timeframe Confluence Trading System                       |
-//|  Strategie : BB_SQUEEZE            Auto-Optimiert              |
-//|  Python-Backtest: WR=46.3%  Return=+60.9%  Max DD=8.2%   |
-//|  Profit Factor: 1.88   Trades: 84                                   |
-//|  Kapital: $100 -> $160.92 (+$60.92)               |
+//|  Strategie : VOLUME_CONF           Auto-Optimiert              |
+//|  Python-Backtest: WR=50.0%  Return=+23.1%  Max DD=5.9%   |
+//|  Profit Factor: 1.91   Trades: 46                                   |
+//|  Kapital: $10000 -> $12305.06 (+$2305.06)               |
 //+------------------------------------------------------------------+
 //  FEATURES:
 //  - H4 Trend-Filter (EMA50/200) — nur in H4-Trendrichtung handeln
 //  - H1 Momentum-Filter (EMA20/50, RSI, MACD) — Bias-Bestätigung
 //  - M15 Entry mit 10-Faktor Confluence-Score
-//  - Doppeltes TP: TP1=2.0R (50% schließen) + TP2=4.0R (Runner)
+//  - Doppeltes TP: TP1=1.5R (50% schließen) + TP2=4.0R (Runner)
 //  - ATR Trailing Stop nach TP1 getroffen
 //  - Break-Even Management
 //  - Spread-Filter (max. Spread vor Entry)
@@ -40,10 +40,13 @@ input int     InpMaxSpread    = 35;    // Max. Spread in Punkten
 input int     InpMaxDailyTrades= 2;    // Max. Trades pro Tag (1 Trade = TP1+TP2 Paar)
 input int     InpTradeCooldownH= 3;    // Std. Mindest-Pause zwischen Trades
 
-//── SESSION ───────────────────────────────────────────────────────
+//── SESSION & WOCHENTAG ───────────────────────────────────────────
 input string  _Sec1           = "══ SESSION ══";
 input int     InpSessionStart = 7;    // Session Start UTC (London Open)
 input int     InpSessionEnd   = 20;   // Session End UTC (NY Close)
+input bool    InpSkipMonday   = true;   // Montag 7-10 UTC überspringen (schwache Liquidität)
+input bool    InpSkipFriday   = true;   // Freitag ab 17 UTC überspringen (Weekend-Gap Risiko)
+input int     InpConfirmBars  = 2;    // Signal-Bestätigung (1=sofort, 2=2 Kerzen hintereinander)
 
 //── MULTI-TIMEFRAME ───────────────────────────────────────────────
 input string  _Sec2           = "══ MULTI-TIMEFRAME ══";
@@ -52,10 +55,10 @@ input bool    InpUseH1Filter  = true;  // H1 Momentum-Filter aktiv
 input int     InpH4EMA        = 50;    // H4 Haupt-EMA Periode
 
 //── ENTRY PARAMETER (Optimizer-Ergebnis) ──────────────────────────
-input string  _Sec3           = "══ ENTRY (BB_SQUEEZE) ══";
-input int     InpADXMin       = 30;   // ADX Minimum Trend-Stärke
-input int     InpRSILowBuy    = 20;    // RSI Kauf-Zone Untergrenze
-input int     InpRSIHighBuy   = 50;    // RSI Kauf-Zone Obergrenze
+input string  _Sec3           = "══ ENTRY (VOLUME_CONF) ══";
+input int     InpADXMin       = 20;   // ADX Minimum Trend-Stärke
+input int     InpRSILowBuy    = 40;    // RSI Kauf-Zone Untergrenze
+input int     InpRSIHighBuy   = 62;    // RSI Kauf-Zone Obergrenze
 input int     InpRSILowSell   = 62;    // RSI Verkauf-Zone Untergrenze
 input int     InpRSIHighSell  = 77;    // RSI Verkauf-Zone Obergrenze
 input int     InpMinScore     = 7;  // Min. Confluence Score
@@ -63,23 +66,23 @@ input double  InpVolMinRatio  = 0.80;        // Volumen-Min. vs 20-Kerzen Ø
 
 //── TRADE MANAGEMENT ──────────────────────────────────────────────
 input string  _Sec4           = "══ TRADE MANAGEMENT ══";
-input double  InpSLMult       = 1.5;   // Stop Loss (ATR x)
-input double  InpTP1Mult      = 2.0;  // Take Profit 1 (ATR x) — 50% schließen
+input double  InpSLMult       = 2.0;   // Stop Loss (ATR x)
+input double  InpTP1Mult      = 1.5;  // Take Profit 1 (ATR x) — 50% schließen
 input double  InpTP2Mult      = 4.0;  // Take Profit 2 (ATR x) — Runner
-input double  InpBEAt         = 0.5;     // Break-Even Trigger (ATR x, 0=aus)
+input double  InpBEAt         = 0.0;     // Break-Even Trigger (ATR x, 0=aus)
 input bool    InpTrailing     = true;        // ATR Trailing Stop (nach TP1)
 input double  InpTrailMult    = 1.0;         // Trailing Stop Abstand (ATR x)
 
-//── CONFLUENCE GEWICHTUNGEN (BB_SQUEEZE) ─────────────────────────────
+//── CONFLUENCE GEWICHTUNGEN (VOLUME_CONF) ─────────────────────────────
 input string  _Sec5           = "══ GEWICHTUNGEN ══";
-input int     W_EMA           = 1;   // EMA-Trend Gewicht (M15)
+input int     W_EMA           = 2;   // EMA-Trend Gewicht (M15)
 input int     W_ADX           = 2;   // ADX-Stärke Gewicht
-input int     W_RSI           = 1;   // RSI Zone Gewicht
+input int     W_RSI           = 2;   // RSI Zone Gewicht
 input int     W_MACD          = 2;  // MACD Gewicht
-input int     W_BB            = 5;    // Bollinger Bands Gewicht
+input int     W_BB            = 1;    // Bollinger Bands Gewicht
 input int     W_STOCH         = 1; // Stochastic Gewicht
 input int     W_CCI           = 2;   // CCI Momentum Gewicht
-input int     W_VOL           = 3;   // Volumen Bestätigung Gewicht
+input int     W_VOL           = 5;   // Volumen Bestätigung Gewicht
 
 //══════════════════════════════════════════════════════════════════
 //  GLOBALE VARIABLEN
@@ -147,7 +150,7 @@ int OnInit()
    g_DayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
    g_DayStart        = TimeCurrent();
 
-   Print("CLAUDE QUANT ELITE v2.0 | Strategie: BB_SQUEEZE | WR=46.3% | Return=+60.9%");
+   Print("CLAUDE QUANT ELITE v2.0 | Strategie: VOLUME_CONF | WR=50.0% | Return=+23.1%");
    Print("H4-Filter: ", InpUseH4Filter ? "AN" : "AUS",
          " | H1-Filter: ", InpUseH1Filter ? "AN" : "AUS",
          " | Session: ", InpSessionStart, "-", InpSessionEnd, " UTC");
@@ -201,6 +204,12 @@ void OnTick()
    MqlDateTime gmt;
    TimeToStruct(TimeGMT(), gmt);
    if(gmt.hour < InpSessionStart || gmt.hour >= InpSessionEnd) return;
+
+   // Wochentag-Filter: Montag-Open (schwache Liquidität) + Freitag-Close (Weekend-Gap)
+   MqlDateTime loc;
+   TimeToStruct(TimeCurrent(), loc);
+   if(InpSkipMonday && loc.day_of_week == 1 && gmt.hour < 10) return; // Montag vor 10 UTC
+   if(InpSkipFriday && loc.day_of_week == 5 && gmt.hour >= 17) return; // Freitag ab 17 UTC
 
    // Max. offene Positionen
    if(CountMyPositions() >= InpMaxPositions) return;
@@ -392,10 +401,30 @@ int GetSignal()
       if(h4_bias == -1) ss += 3;
      }
 
-   //── Entscheidung ─────────────────────────────────────────────
-   if(bs >= InpMinScore && bs > ss + 2) return  1;
-   if(ss >= InpMinScore && ss > bs + 2) return -1;
-   return 0;
+   //── Entscheidung + 2-Kerzen-Bestätigung ─────────────────────
+   int raw_sig = 0;
+   if(bs >= InpMinScore && bs > ss + 2) raw_sig =  1;
+   if(ss >= InpMinScore && ss > bs + 2) raw_sig = -1;
+
+   // 2-Kerzen-Bestätigung: Signal muss auf vorheriger Kerze ebenfalls aktiv gewesen sein
+   if(InpConfirmBars >= 2 && raw_sig != 0)
+     {
+      static int prev_sig   = 0;
+      static datetime prev_bar_time = 0;
+      datetime this_bar = iTime(_Symbol, PERIOD_M15, 1);
+      datetime prev_bar = iTime(_Symbol, PERIOD_M15, 2);
+      if(prev_bar_time == prev_bar && prev_sig == raw_sig)
+        {
+         prev_bar_time = this_bar;
+         prev_sig      = raw_sig;
+         return raw_sig;  // Beide Kerzen bestätigen → echtes Signal
+        }
+      prev_bar_time = this_bar;
+      prev_sig      = raw_sig;
+      return 0;  // Nur eine Kerze → noch kein Einstieg
+     }
+
+   return raw_sig;
   }
 
 //══════════════════════════════════════════════════════════════════
@@ -587,7 +616,7 @@ void ShowDashboard()
       "║  Session  : %-22s ║\n"
       "║  Positionen: %2d  | Trades heute: %2d  ║\n"
       "╚══════════════════════════════════════╝",
-      "BB_SQUEEZE", balance, equity, day_pl,
+      "VOLUME_CONF", balance, equity, day_pl,
       h4_str, h1rsi, m15rsi, atr,
       sess_str, CountMyPositions(), g_DailyTrades));
   }

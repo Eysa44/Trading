@@ -35,26 +35,29 @@ CONTRACT_SIZE = CONTRACT_SIZES.get(SYMBOL, 100)
 
 # ── PARAMETER-SUCHRAUM ────────────────────────────────────────────────────────
 SEARCH_SPACE = {
-    "adx_min":        [15, 18, 20, 22, 24, 25, 27, 30, 33],
-    # Breiter RSI-Suchraum: deckt Trend (40-65) AND Reversal (20-38) ab
-    "rsi_low_b":      [20, 25, 28, 30, 35, 38, 40, 42, 45],
-    "rsi_high_b":     [35, 40, 45, 50, 55, 58, 60, 62, 65, 70],
-    "rsi_low_s":      [30, 33, 35, 38, 40, 55, 60, 62, 65],
-    "rsi_high_s":     [50, 52, 55, 58, 60, 65, 70, 75, 80],
-    "sl_mult":        [0.8, 1.0, 1.2, 1.5, 1.8, 2.0, 2.5],
-    # Kleine TP-Werte (0.8-1.2) für Scalping: mehr Treffer → höhere Win-Rate
-    "tp_mult":        [0.8, 1.0, 1.2, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0],
+    "adx_min":        [18, 20, 22, 24, 25, 27, 30, 33, 35],
+    "rsi_low_b":      [25, 30, 35, 38, 40, 42, 45, 48],
+    "rsi_high_b":     [45, 50, 55, 58, 60, 62, 65],
+    "rsi_low_s":      [35, 38, 40, 55, 58, 60, 62, 65],
+    "rsi_high_s":     [52, 55, 58, 60, 65, 70, 75, 80],
+    "sl_mult":        [1.0, 1.2, 1.5, 1.8, 2.0, 2.5],
+    # TP ≥ SL (nur positive RR): verhindert Setups wo TP < SL
+    "tp_mult":        [1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0],
     "need_pattern":   [True, False],
-    "min_score":      [5, 6, 7, 8, 9, 10, 11, 12],
+    # Höhere Mindest-Scores → selektivere, qualitativ bessere Signale
+    "min_score":      [8, 9, 10, 11, 12, 13, 14],
     "strategy_type":  STRATEGY_TYPES,
-    # Frühere Break-Even Werte (0.3, 0.5) → mehr BE-Trades → höhere WR
-    "break_even_at":  [0.0, 0.3, 0.5, 0.8, 1.0, 1.2, 1.5],
+    "break_even_at":  [0.0, 0.5, 0.8, 1.0, 1.2],
+    # 2-Kerzen-Bestätigung: Signal muss auf 2 aufeinanderfolgenden Kerzen erscheinen
+    "confirm_bars":   [1, 2],
+    # Wochentag-Filter: Mon-Open und Freitag-Close überspringen
+    "day_filter":     [True, False],
 }
 
 # ── QUALITÄTS-FILTER ──────────────────────────────────────────────────────────
-MIN_TRADES    = 8      # Mindestens 8 Trades für aussagekräftiges Ergebnis
-MAX_DRAWDOWN  = 20.0   # Maximal 20% Drawdown
-MIN_WR        = 44.0   # Realistisches Minimum für XAUUSD (Scoring optimiert auf Max-WR)
+MIN_TRADES    = 10     # Mindestens 10 Trades für aussagekräftiges Ergebnis
+MAX_DRAWDOWN  = 15.0   # Maximal 15% Drawdown (strenger)
+MIN_WR        = 47.0   # Wir erreichen 50%+ — nur noch echte Top-Kandidaten
 
 
 # ── SCORING ───────────────────────────────────────────────────────────────────
@@ -85,9 +88,17 @@ def score(m):
     trade_q  = math.log(m["total_trades"] + 1) / 6
     pf_bonus = min((m["profit_factor"] - 1.0) / 2.0, 1.0)
 
-    # Win Rate kubisch: 60%=0.216, 65%=0.274, 70%=0.343, 75%=0.422, 80%=0.512
-    # Kubisch belohnt jeden WR-Prozentpunkt exponentiell stärker
+    # Win Rate kubisch: 50%=0.125, 55%=0.166, 60%=0.216, 65%=0.274, 70%=0.343
+    # Extra-Bonus über 50% WR (Ziel ist 55%+)
     wr_bonus = wr ** 3
+    if wr >= 0.55:
+        wr_bonus *= 1.25   # +25% Bonus für 55%+ WR
+    if wr >= 0.60:
+        wr_bonus *= 1.20   # Nochmal +20% für 60%+ WR
+
+    # Profit Factor > 2.0 ist Qualitäts-Zeichen (mehr als doppelte Gewinne vs Verluste)
+    if m["profit_factor"] >= 2.0:
+        pf_bonus = min(pf_bonus * 1.3, 1.0)
 
     return round(
         (wr_bonus * 0.55 + pf_bonus * 0.20 + ret * 0.10 + sharpe * 0.10 + trade_q * 0.05)
@@ -435,9 +446,11 @@ def generate_mql5_ea(best_strat, metrics, balance=10000.0):
     p_s   = "+" if prof >= 0 else ""
 
     tp_raw   = best_strat.get("tp_mult", 2.0)
-    tp1_mult = round(min(tp_raw, 2.0), 1)   # quick TP: max 2R (higher hit rate)
+    tp1_mult = round(min(tp_raw, 1.5), 1)   # quick TP: max 1.5R → trifft häufiger → höhere WR
     tp2_mult = round(tp_raw, 1)              # runner TP: optimizer's full target
     sl_mult  = round(best_strat.get("sl_mult", 1.5), 2)
+    confirm  = best_strat.get("confirm_bars", 1)   # 2-Kerzen-Bestätigung
+    day_filt = best_strat.get("day_filter", True)  # Wochentag-Filter
     be_at    = round(best_strat.get("break_even_at", 1.0), 1)
     adx_min  = best_strat.get("adx_min", 20)
     rsi_lb   = best_strat.get("rsi_low_b", 40)
@@ -488,10 +501,13 @@ input int     InpMaxSpread    = 35;    // Max. Spread in Punkten
 input int     InpMaxDailyTrades= 2;    // Max. Trades pro Tag (1 Trade = TP1+TP2 Paar)
 input int     InpTradeCooldownH= 3;    // Std. Mindest-Pause zwischen Trades
 
-//── SESSION ───────────────────────────────────────────────────────
+//── SESSION & WOCHENTAG ───────────────────────────────────────────
 input string  _Sec1           = "══ SESSION ══";
 input int     InpSessionStart = 7;    // Session Start UTC (London Open)
 input int     InpSessionEnd   = 20;   // Session End UTC (NY Close)
+input bool    InpSkipMonday   = {"true" if day_filt else "false"};   // Montag 7-10 UTC überspringen (schwache Liquidität)
+input bool    InpSkipFriday   = {"true" if day_filt else "false"};   // Freitag ab 17 UTC überspringen (Weekend-Gap Risiko)
+input int     InpConfirmBars  = {confirm};    // Signal-Bestätigung (1=sofort, 2=2 Kerzen hintereinander)
 
 //── MULTI-TIMEFRAME ───────────────────────────────────────────────
 input string  _Sec2           = "══ MULTI-TIMEFRAME ══";
@@ -649,6 +665,12 @@ void OnTick()
    MqlDateTime gmt;
    TimeToStruct(TimeGMT(), gmt);
    if(gmt.hour < InpSessionStart || gmt.hour >= InpSessionEnd) return;
+
+   // Wochentag-Filter: Montag-Open (schwache Liquidität) + Freitag-Close (Weekend-Gap)
+   MqlDateTime loc;
+   TimeToStruct(TimeCurrent(), loc);
+   if(InpSkipMonday && loc.day_of_week == 1 && gmt.hour < 10) return; // Montag vor 10 UTC
+   if(InpSkipFriday && loc.day_of_week == 5 && gmt.hour >= 17) return; // Freitag ab 17 UTC
 
    // Max. offene Positionen
    if(CountMyPositions() >= InpMaxPositions) return;
@@ -840,10 +862,30 @@ int GetSignal()
       if(h4_bias == -1) ss += 3;
      }}
 
-   //── Entscheidung ─────────────────────────────────────────────
-   if(bs >= InpMinScore && bs > ss + 2) return  1;
-   if(ss >= InpMinScore && ss > bs + 2) return -1;
-   return 0;
+   //── Entscheidung + 2-Kerzen-Bestätigung ─────────────────────
+   int raw_sig = 0;
+   if(bs >= InpMinScore && bs > ss + 2) raw_sig =  1;
+   if(ss >= InpMinScore && ss > bs + 2) raw_sig = -1;
+
+   // 2-Kerzen-Bestätigung: Signal muss auf vorheriger Kerze ebenfalls aktiv gewesen sein
+   if(InpConfirmBars >= 2 && raw_sig != 0)
+     {{
+      static int prev_sig   = 0;
+      static datetime prev_bar_time = 0;
+      datetime this_bar = iTime(_Symbol, PERIOD_M15, 1);
+      datetime prev_bar = iTime(_Symbol, PERIOD_M15, 2);
+      if(prev_bar_time == prev_bar && prev_sig == raw_sig)
+        {{
+         prev_bar_time = this_bar;
+         prev_sig      = raw_sig;
+         return raw_sig;  // Beide Kerzen bestätigen → echtes Signal
+        }}
+      prev_bar_time = this_bar;
+      prev_sig      = raw_sig;
+      return 0;  // Nur eine Kerze → noch kein Einstieg
+     }}
+
+   return raw_sig;
   }}
 
 //══════════════════════════════════════════════════════════════════
