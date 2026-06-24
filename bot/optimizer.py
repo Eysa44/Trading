@@ -244,7 +244,8 @@ def apply_best_params(best_strat):
 
 def mutate_strategy(parent, mutation_rate=0.3):
     """Mutation: ändert zufällig einige Parameter eines guten Elternteils."""
-    child = dict(parent)
+    # Alle SEARCH_SPACE-Keys sicherstellen (ältere gespeicherte Strategien fehlt evtl. neue Keys)
+    child = {key: parent.get(key, SEARCH_SPACE[key][0]) for key in SEARCH_SPACE}
     child["name"] = "mutant"
     for key, choices in SEARCH_SPACE.items():
         if random.random() < mutation_rate:
@@ -263,7 +264,8 @@ def crossover_strategy(p1, p2):
     """Kreuzung: kombiniert Gene zweier guter Strategien (uniform crossover)."""
     child = {}
     for key in SEARCH_SPACE:
-        child[key] = p1[key] if random.random() < 0.5 else p2.get(key, p1[key])
+        default = SEARCH_SPACE[key][0]
+        child[key] = p1.get(key, default) if random.random() < 0.5 else p2.get(key, p1.get(key, default))
     child["name"] = "crossover"
     # Konsistenz-Checks
     if child["tp_mult"] < child["sl_mult"] * 1.5:
