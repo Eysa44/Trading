@@ -67,11 +67,16 @@ input double  InpVolMinRatio  = 0.80;        // Volumen-Min. vs 20-Kerzen Ø
 //── TRADE MANAGEMENT ──────────────────────────────────────────────
 input string  _Sec4           = "══ TRADE MANAGEMENT ══";
 input double  InpSLMult       = 2.0;   // Stop Loss (ATR x)
-input double  InpTP1Mult      = 1.5;  // Take Profit 1 (ATR x) — 50% schließen
-input double  InpTP2Mult      = 4.0;  // Take Profit 2 (ATR x) — Runner
-input double  InpBEAt         = 0.0;     // Break-Even Trigger (ATR x, 0=aus)
-input bool    InpTrailing     = true;        // ATR Trailing Stop (nach TP1)
-input double  InpTrailMult    = 1.0;         // Trailing Stop Abstand (ATR x)
+input double  InpTP1Mult      = 1.5;  // Take Profit 1 (ATR x) — 50% sofort sichern
+input bool    InpTP2NoLimit   = true;        // TP2 ohne fixes Ziel (nur ATR-Trail) — Elite-Modus
+input double  InpTP2Mult      = 4.0;  // Take Profit 2 fix (wenn InpTP2NoLimit=false)
+input double  InpBEAt         = 0.0;     // Break-Even nach TP1 (ATR x, 0=aus)
+input bool    InpTrailing     = true;        // ATR Trailing Stop aktiv
+input double  InpTrailMult    = 1.2;         // Trailing Stop Abstand (ATR x)
+input double  InpTrailActivate= 0.5;         // Trail startet ab X*ATR Gewinn (vermeidet Früh-Stop)
+// RSI-Override: extrem überverkauft/überkauft → Gewinne sofort sichern vor Bounce
+input int     InpRSICloseSell = 20;          // SELL schließen wenn RSI unter diesen Wert fällt
+input int     InpRSICloseBuy  = 80;          // BUY schließen wenn RSI über diesen Wert steigt
 
 //── CONFLUENCE GEWICHTUNGEN (VOLUME_CONF) ─────────────────────────────
 input string  _Sec5           = "══ GEWICHTUNGEN ══";
@@ -455,17 +460,19 @@ void OpenTrade(int dir, double atr)
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
+   // TP2: kein festes Ziel wenn Elite-Modus aktiv → Trail übernimmt
+   double tp2_buy  = InpTP2NoLimit ? 0.0 : ask + tp2_pts;
+   double tp2_sell = InpTP2NoLimit ? 0.0 : bid - tp2_pts;
+
    if(dir == 1)
      {
       trade.Buy(half, _Symbol, ask, ask - sl_pts, ask + tp1_pts, "CQ-TP1");
-      if(InpTP2Mult > InpTP1Mult)
-         trade.Buy(half, _Symbol, ask, ask - sl_pts, ask + tp2_pts, "CQ-TP2");
+      trade.Buy(half, _Symbol, ask, ask - sl_pts, tp2_buy,       "CQ-TP2");
      }
    else
      {
       trade.Sell(half, _Symbol, bid, bid + sl_pts, bid - tp1_pts, "CQ-TP1");
-      if(InpTP2Mult > InpTP1Mult)
-         trade.Sell(half, _Symbol, bid, bid + sl_pts, bid - tp2_pts, "CQ-TP2");
+      trade.Sell(half, _Symbol, bid, bid + sl_pts, tp2_sell,      "CQ-TP2");
      }
 
    // Zähler aktualisieren
@@ -517,7 +524,37 @@ void ManageTrades()
         }
      }
 
-   // ATR Trailing Stop für TP2 Runner
+   // ── RSI Emergency Close (Bounce-Schutz) ─────────────────────────
+   // Wenn RSI extremes Niveau → alle Gewinne sofort sichern, bevor Reversal kommt
+   double cur_rsi = Buf(hM_RSI, 0, 0);
+   if(cur_rsi > 0)
+     {
+      for(int i = PositionsTotal() - 1; i >= 0; i--)
+        {
+         ulong tk = PositionGetTicket(i);
+         if(!PositionSelectByTicket(tk)) continue;
+         if(PositionGetInteger(POSITION_MAGIC) != (long)MAGIC) continue;
+         if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+         long   ptype  = PositionGetInteger(POSITION_TYPE);
+         double profit = PositionGetDouble(POSITION_PROFIT);
+         if(profit <= 0) continue;  // Nur profitable Positionen notfall-schließen
+         // SELL bei überverkauftem RSI → Bounce droht → Gewinne sichern
+         if(ptype == POSITION_TYPE_SELL && cur_rsi < InpRSICloseSell)
+           {
+            trade.PositionClose(tk);
+            Print("RSI-EMERGENCY CLOSE (SELL | RSI=", cur_rsi, " < ", InpRSICloseSell, ")");
+           }
+         // BUY bei überkauftem RSI → Verkaufsdruck droht → Gewinne sichern
+         else if(ptype == POSITION_TYPE_BUY && cur_rsi > InpRSICloseBuy)
+           {
+            trade.PositionClose(tk);
+            Print("RSI-EMERGENCY CLOSE (BUY | RSI=", cur_rsi, " > ", InpRSICloseBuy, ")");
+           }
+        }
+     }
+
+   // ── ATR Trailing Stop für TP2 Runner ─────────────────────────────
+   // Trail aktiviert erst nach InpTrailActivate*ATR Gewinn (kein Früh-Stop)
    if(InpTrailing && tp2_open && tp2_ticket > 0)
      {
       if(PositionSelectByTicket(tp2_ticket))
@@ -527,20 +564,26 @@ void ManageTrades()
          double entry = PositionGetDouble(POSITION_PRICE_OPEN);
          long   ptype = PositionGetInteger(POSITION_TYPE);
          double trail = atr * InpTrailMult;
+         double activate_dist = atr * InpTrailActivate;
 
          if(ptype == POSITION_TYPE_BUY)
            {
             double bid    = SymbolInfoDouble(_Symbol, SYMBOL_BID);
             double new_sl = bid - trail;
-            // Nur ziehen wenn über Entry (Gewinn gesichert) und sinnvoll
-            if(new_sl > entry && new_sl > sl + _Point && new_sl < tp - _Point)
+            // Trail erst wenn Gewinn > activate_dist (z.B. 0.5*ATR)
+            bool   in_profit = (bid - entry) >= activate_dist;
+            // Bei InpTP2NoLimit: kein festes TP, nur Trail (tp=0 → kein Limit)
+            bool   tp_ok = (tp <= 0 || new_sl < tp - _Point);
+            if(in_profit && new_sl > sl + _Point && tp_ok)
                trade.PositionModify(tp2_ticket, new_sl, tp);
            }
          else
            {
             double ask    = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
             double new_sl = ask + trail;
-            if(new_sl < entry && new_sl < sl - _Point && new_sl > tp + _Point)
+            bool   in_profit = (entry - ask) >= activate_dist;
+            bool   tp_ok = (tp <= 0 || new_sl > tp + _Point);
+            if(in_profit && new_sl < sl - _Point && tp_ok)
                trade.PositionModify(tp2_ticket, new_sl, tp);
            }
         }
