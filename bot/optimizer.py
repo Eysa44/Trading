@@ -646,7 +646,7 @@ void CheckBreakEven()
 //+------------------------------------------------------------------+
 double Buf(int handle, int buffer, int shift)
   {{
-   double arr[1];
+   double arr[];
    ArraySetAsSeries(arr, true);
    if(CopyBuffer(handle, buffer, shift, 1, arr) <= 0) return 0.0;
    return arr[0];
