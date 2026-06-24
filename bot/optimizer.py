@@ -485,6 +485,8 @@ input double  InpRiskPct      = 1.0;   // Risiko % pro Trade (vom Kapital)
 input double  InpMaxDailyDD   = 3.0;   // Max. Tagesverlust % (dann Stop)
 input int     InpMaxPositions = 2;     // Max. offene Positionen (TP1+TP2)
 input int     InpMaxSpread    = 35;    // Max. Spread in Punkten
+input int     InpMaxDailyTrades= 2;    // Max. Trades pro Tag (1 Trade = TP1+TP2 Paar)
+input int     InpTradeCooldownH= 3;    // Std. Mindest-Pause zwischen Trades
 
 //── SESSION ───────────────────────────────────────────────────────
 input string  _Sec1           = "══ SESSION ══";
@@ -548,6 +550,8 @@ int hH4_EMA50, hH4_EMA200, hH4_ADX;
 double   g_DayStartBalance = 0;
 datetime g_DayStart        = 0;
 datetime g_LastBar         = 0;
+int      g_DailyTrades     = 0;    // Trades heute geöffnet
+datetime g_LastOpenTime    = 0;    // Zeitpunkt letzter Trade-Eröffnung
 
 //══════════════════════════════════════════════════════════════════
 //  OnInit
@@ -627,6 +631,7 @@ void OnTick()
      {{
       g_DayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
       g_DayStart        = TimeCurrent();
+      g_DailyTrades     = 0;  // Tages-Zähler zurücksetzen
      }}
 
    //── Position-Verwaltung (jeden Tick) ─────────────────────────
@@ -647,6 +652,13 @@ void OnTick()
 
    // Max. offene Positionen
    if(CountMyPositions() >= InpMaxPositions) return;
+
+   // Tages-Trade-Limit: max. N Signal-Paare pro Tag
+   if(g_DailyTrades >= InpMaxDailyTrades) return;
+
+   // Cooldown: Mindest-Pause zwischen Trades (verhindert Overtrading)
+   if(g_LastOpenTime > 0 &&
+      (int)(TimeCurrent() - g_LastOpenTime) < InpTradeCooldownH * 3600) return;
 
    // Tages-Verlust-Limit
    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
@@ -875,8 +887,12 @@ void OpenTrade(int dir, double atr)
          trade.Sell(half, _Symbol, bid, bid + sl_pts, bid - tp2_pts, "CQ-TP2");
      }}
 
-   PrintFormat("TRADE OPEN | %s | Lot:%.2fx2 | SL:%.2f | TP1:%.2f | TP2:%.2f | ATR:%.2f | Score OK",
-               dir == 1 ? "BUY" : "SELL", half, sl_pts, tp1_pts, tp2_pts, atr);
+   // Zähler aktualisieren
+   g_DailyTrades++;
+   g_LastOpenTime = TimeCurrent();
+
+   PrintFormat("TRADE OPEN | %s | Lot:%.2fx2 | SL:%.2f | TP1:%.2f | TP2:%.2f | ATR:%.2f | Tag#%d",
+               dir == 1 ? "BUY" : "SELL", half, sl_pts, tp1_pts, tp2_pts, atr, g_DailyTrades);
   }}
 
 //══════════════════════════════════════════════════════════════════
@@ -1017,11 +1033,11 @@ void ShowDashboard()
       "║  ATR M15  : %8.2f                ║\\n"
       "╠══════════════════════════════════════╣\\n"
       "║  Session  : %-22s ║\\n"
-      "║  Positionen: %2d                       ║\\n"
+      "║  Positionen: %2d  | Trades heute: %2d  ║\\n"
       "╚══════════════════════════════════════╝",
       "{stype}", balance, equity, day_pl,
       h4_str, h1rsi, m15rsi, atr,
-      sess_str, CountMyPositions()));
+      sess_str, CountMyPositions(), g_DailyTrades));
   }}
 
 //══════════════════════════════════════════════════════════════════
