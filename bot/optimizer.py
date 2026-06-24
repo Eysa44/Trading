@@ -400,250 +400,647 @@ def main():
 
 
 def generate_mql5_ea(best_strat, metrics, balance=10000.0):
-    """Generiert einen fertigen MQL5 Expert Advisor aus den besten Optimizer-Parametern."""
+    """Generiert einen Elite MQL5 Expert Advisor v2.0 — Multi-Timeframe H4+H1+M15."""
 
     stype = best_strat.get("strategy_type", "BALANCED")
 
-    # Strategie-Gewichtungen (identisch mit trading_bot.py)
     WEIGHTS = {
-        "BALANCED":    dict(ema=3, adx=3, rsi=3, macd=3, bb=2, stoch=2, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
-        "BB_SCALP":    dict(ema=1, adx=2, rsi=3, macd=1, bb=5, stoch=4, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
-        "SCALP":       dict(ema=2, adx=2, rsi=4, macd=2, bb=4, stoch=5, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
-        "FIB_SWING":   dict(ema=3, adx=2, rsi=2, macd=2, bb=1, stoch=2, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
-        "ICT_SMC":     dict(ema=2, adx=2, rsi=2, macd=2, bb=1, stoch=1, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
-        "VWAP_TREND":  dict(ema=3, adx=3, rsi=2, macd=3, bb=2, stoch=1, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
-        "MOMENTUM":    dict(ema=3, adx=4, rsi=3, macd=5, bb=2, stoch=3, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
-        "ENSEMBLE":    dict(ema=3, adx=3, rsi=3, macd=3, bb=3, stoch=3, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
-        "REVERSAL":    dict(ema=1, adx=1, rsi=5, macd=1, bb=4, stoch=5, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
-        "BREAKOUT":    dict(ema=2, adx=4, rsi=1, macd=3, bb=5, stoch=1, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
-        "PRICE_ACTION":dict(ema=2, adx=1, rsi=1, macd=1, bb=1, stoch=1, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
-        "WYCKOFF":     dict(ema=2, adx=2, rsi=1, macd=2, bb=3, stoch=1, ichi=0, super=0, don=0, cci=0, willr=0, vol=0),
-        "ICHIMOKU":    dict(ema=1, adx=1, rsi=1, macd=1, bb=1, stoch=1, ichi=5, super=2, don=1, cci=1, willr=1, vol=1),
-        "SUPERTREND":  dict(ema=2, adx=2, rsi=1, macd=2, bb=1, stoch=1, ichi=1, super=5, don=2, cci=1, willr=1, vol=2),
-        "MULTI_TF":    dict(ema=5, adx=2, rsi=1, macd=2, bb=1, stoch=1, ichi=2, super=3, don=1, cci=1, willr=1, vol=1),
-        "BB_SQUEEZE":  dict(ema=1, adx=2, rsi=1, macd=2, bb=5, stoch=1, ichi=1, super=1, don=3, cci=2, willr=1, vol=3),
-        "VOLUME_CONF": dict(ema=2, adx=2, rsi=2, macd=2, bb=1, stoch=1, ichi=1, super=2, don=1, cci=2, willr=2, vol=5),
+        "BALANCED":    dict(ema=3, adx=3, rsi=3, macd=3, bb=2, stoch=2, cci=1, vol=1),
+        "BB_SCALP":    dict(ema=1, adx=2, rsi=3, macd=1, bb=5, stoch=4, cci=1, vol=1),
+        "SCALP":       dict(ema=2, adx=2, rsi=4, macd=2, bb=4, stoch=5, cci=1, vol=1),
+        "FIB_SWING":   dict(ema=3, adx=2, rsi=2, macd=2, bb=1, stoch=2, cci=1, vol=1),
+        "ICT_SMC":     dict(ema=2, adx=2, rsi=2, macd=2, bb=1, stoch=1, cci=1, vol=2),
+        "VWAP_TREND":  dict(ema=3, adx=3, rsi=2, macd=3, bb=2, stoch=1, cci=1, vol=2),
+        "MOMENTUM":    dict(ema=3, adx=4, rsi=3, macd=5, bb=2, stoch=3, cci=2, vol=2),
+        "ENSEMBLE":    dict(ema=3, adx=3, rsi=3, macd=3, bb=3, stoch=3, cci=2, vol=2),
+        "REVERSAL":    dict(ema=1, adx=1, rsi=5, macd=1, bb=4, stoch=5, cci=3, vol=2),
+        "BREAKOUT":    dict(ema=2, adx=4, rsi=1, macd=3, bb=5, stoch=1, cci=2, vol=3),
+        "PRICE_ACTION":dict(ema=2, adx=1, rsi=1, macd=1, bb=1, stoch=1, cci=1, vol=1),
+        "WYCKOFF":     dict(ema=2, adx=2, rsi=1, macd=2, bb=3, stoch=1, cci=2, vol=3),
+        "ICHIMOKU":    dict(ema=1, adx=1, rsi=1, macd=1, bb=1, stoch=1, cci=1, vol=1),
+        "SUPERTREND":  dict(ema=2, adx=2, rsi=1, macd=2, bb=1, stoch=1, cci=1, vol=2),
+        "MULTI_TF":    dict(ema=5, adx=2, rsi=1, macd=2, bb=1, stoch=1, cci=1, vol=1),
+        "BB_SQUEEZE":  dict(ema=1, adx=2, rsi=1, macd=2, bb=5, stoch=1, cci=2, vol=3),
+        "VOLUME_CONF": dict(ema=2, adx=2, rsi=2, macd=2, bb=1, stoch=1, cci=2, vol=5),
     }
     W = WEIGHTS.get(stype, WEIGHTS["BALANCED"])
 
-    wr   = metrics.get("win_rate", 0)
-    ret  = metrics.get("return_pct", 0)
-    dd   = metrics.get("max_drawdown", 0)
-    pf   = metrics.get("profit_factor", 0)
-    fb   = metrics.get("final_balance", balance)
-    prof = metrics.get("total_profit", 0)
-    p_s  = "+" if prof >= 0 else ""
+    wr    = metrics.get("win_rate", 0)
+    ret   = metrics.get("return_pct", 0)
+    dd    = metrics.get("max_drawdown", 0)
+    pf    = metrics.get("profit_factor", 0)
+    fb    = metrics.get("final_balance", balance)
+    ntrades = metrics.get("total_trades", 0)
+    prof  = fb - balance
+    p_s   = "+" if prof >= 0 else ""
+
+    tp_raw   = best_strat.get("tp_mult", 2.0)
+    tp1_mult = round(min(tp_raw, 2.0), 1)   # quick TP: max 2R (higher hit rate)
+    tp2_mult = round(tp_raw, 1)              # runner TP: optimizer's full target
+    sl_mult  = round(best_strat.get("sl_mult", 1.5), 2)
+    be_at    = round(best_strat.get("break_even_at", 1.0), 1)
+    adx_min  = best_strat.get("adx_min", 20)
+    rsi_lb   = best_strat.get("rsi_low_b", 40)
+    rsi_hb   = best_strat.get("rsi_high_b", 60)
+    rsi_ls   = best_strat.get("rsi_low_s", 40)
+    rsi_hs   = best_strat.get("rsi_high_s", 60)
+    minscore = best_strat.get("min_score", 8)
 
     code = f"""//+------------------------------------------------------------------+
-//|  CLAUDE + QUANT EA  —  Auto-generiert vom Optimizer             |
-//|  Strategie : {stype:<20}                              |
-//|  Win Rate  : {wr}%   Return: {ret:+.1f}%   Max DD: {dd}%        |
-//|  Profit Factor: {pf}   Trades: {metrics.get('total_trades',0)}                       |
+//|  CLAUDE QUANT ELITE v2.0  —  XAUUSD M15                        |
+//|  Multi-Timeframe Confluence Trading System                       |
+//|  Strategie : {stype:<20}  Auto-Optimiert              |
+//|  Python-Backtest: WR={wr}%  Return={ret:+.1f}%  Max DD={dd}%   |
+//|  Profit Factor: {pf}   Trades: {ntrades}                                   |
 //|  Kapital: ${balance:.0f} -> ${fb:.2f} ({p_s}${prof:.2f})               |
 //+------------------------------------------------------------------+
-#property copyright "Claude + Quant Auto-Optimizer"
-#property version   "1.00"
-#include <Trade\\Trade.mqh>
-
-//── OPTIMIERTE EINGANGSPARAMETER ─────────────────────────────────
-input string   InpInfo          = "Strategie: {stype}";  // Info
-input double   InpRiskPct       = 1.0;                   // Risiko % pro Trade
-input int      InpADXMin        = {best_strat['adx_min']};  // ADX Minimum
-input int      InpRSILowBuy     = {best_strat['rsi_low_b']}; // RSI Kauf-Untergrenze
-input int      InpRSIHighBuy    = {best_strat['rsi_high_b']}; // RSI Kauf-Obergrenze
-input int      InpRSILowSell    = {best_strat['rsi_low_s']}; // RSI Verkauf-Untergrenze
-input int      InpRSIHighSell   = {best_strat['rsi_high_s']}; // RSI Verkauf-Obergrenze
-input double   InpSLMult        = {best_strat['sl_mult']};   // Stop Loss (ATR x)
-input double   InpTPMult        = {best_strat['tp_mult']};   // Take Profit (ATR x)
-input double   InpBreakEvenAt   = {best_strat.get('break_even_at', 1.0)};  // Break-Even (ATR x, 0=aus)
-input int      InpMinScore      = {best_strat.get('min_score', 8)};  // Min. Confluence Score
-
-//── STRATEGIE-GEWICHTUNGEN ({stype}) ─────────────────────────────
-input int      W_EMA   = {W['ema']};   // EMA-Trend Gewicht
-input int      W_ADX   = {W['adx']};   // ADX-Staerke Gewicht
-input int      W_RSI   = {W['rsi']};   // RSI Gewicht
-input int      W_MACD  = {W['macd']};  // MACD Gewicht
-input int      W_BB    = {W['bb']};    // Bollinger Bands Gewicht
-input int      W_STOCH = {W['stoch']}; // Stochastic Gewicht
-
-//── GLOBALE VARIABLEN ─────────────────────────────────────────────
-CTrade trade;
-int    h_atr, h_rsi, h_adx, h_ema20, h_ema50, h_ema200, h_macd, h_bb, h_stoch;
-ulong  MAGIC = 20250601;
-
-//── SESSION-FILTER ────────────────────────────────────────────────
-input int  InpSessionStart = 7;   // Session Start (UTC Stunde, London Open)
-input int  InpSessionEnd   = 20;  // Session End   (UTC Stunde, NY Close)
-
-bool InTradingSession()
-  {{
-   MqlDateTime dt;
-   TimeToStruct(TimeGMT(), dt);
-   return (dt.hour >= InpSessionStart && dt.hour < InpSessionEnd);
-  }}
-
+//  FEATURES:
+//  - H4 Trend-Filter (EMA50/200) — nur in H4-Trendrichtung handeln
+//  - H1 Momentum-Filter (EMA20/50, RSI, MACD) — Bias-Bestätigung
+//  - M15 Entry mit 10-Faktor Confluence-Score
+//  - Doppeltes TP: TP1={tp1_mult}R (50% schließen) + TP2={tp2_mult}R (Runner)
+//  - ATR Trailing Stop nach TP1 getroffen
+//  - Break-Even Management
+//  - Spread-Filter (max. Spread vor Entry)
+//  - Volumen-Filter (Mindest-Volumen für Signal)
+//  - Volatilitäts-Filter (kein Handel bei News-Spikes)
+//  - Tages-Verlust-Limit (Kapitalschutz)
+//  - Session-Filter (London/NY: 7-20 UTC)
+//  - Echtzeit-Dashboard (Chart-Comment)
 //+------------------------------------------------------------------+
+#property copyright "Claude + Quant Elite v2.0"
+#property version   "2.00"
+#property description "Multi-Timeframe Confluence EA for XAUUSD M15"
+
+#include <Trade\\Trade.mqh>
+#include <Trade\\PositionInfo.mqh>
+
+//══════════════════════════════════════════════════════════════════
+//  EINGABE-PARAMETER
+//══════════════════════════════════════════════════════════════════
+
+//── RISIKO ────────────────────────────────────────────────────────
+input string  _Sec0           = "══ RISIKO ══";
+input double  InpRiskPct      = 1.0;   // Risiko % pro Trade (vom Kapital)
+input double  InpMaxDailyDD   = 3.0;   // Max. Tagesverlust % (dann Stop)
+input int     InpMaxPositions = 2;     // Max. offene Positionen (TP1+TP2)
+input int     InpMaxSpread    = 35;    // Max. Spread in Punkten
+
+//── SESSION ───────────────────────────────────────────────────────
+input string  _Sec1           = "══ SESSION ══";
+input int     InpSessionStart = 7;    // Session Start UTC (London Open)
+input int     InpSessionEnd   = 20;   // Session End UTC (NY Close)
+
+//── MULTI-TIMEFRAME ───────────────────────────────────────────────
+input string  _Sec2           = "══ MULTI-TIMEFRAME ══";
+input bool    InpUseH4Filter  = true;  // H4 Trend-Filter aktiv
+input bool    InpUseH1Filter  = true;  // H1 Momentum-Filter aktiv
+input int     InpH4EMA        = 50;    // H4 Haupt-EMA Periode
+
+//── ENTRY PARAMETER (Optimizer-Ergebnis) ──────────────────────────
+input string  _Sec3           = "══ ENTRY ({stype}) ══";
+input int     InpADXMin       = {adx_min};   // ADX Minimum Trend-Stärke
+input int     InpRSILowBuy    = {rsi_lb};    // RSI Kauf-Zone Untergrenze
+input int     InpRSIHighBuy   = {rsi_hb};    // RSI Kauf-Zone Obergrenze
+input int     InpRSILowSell   = {rsi_ls};    // RSI Verkauf-Zone Untergrenze
+input int     InpRSIHighSell  = {rsi_hs};    // RSI Verkauf-Zone Obergrenze
+input int     InpMinScore     = {minscore};  // Min. Confluence Score
+input double  InpVolMinRatio  = 0.80;        // Volumen-Min. vs 20-Kerzen Ø
+
+//── TRADE MANAGEMENT ──────────────────────────────────────────────
+input string  _Sec4           = "══ TRADE MANAGEMENT ══";
+input double  InpSLMult       = {sl_mult};   // Stop Loss (ATR x)
+input double  InpTP1Mult      = {tp1_mult};  // Take Profit 1 (ATR x) — 50% schließen
+input double  InpTP2Mult      = {tp2_mult};  // Take Profit 2 (ATR x) — Runner
+input double  InpBEAt         = {be_at};     // Break-Even Trigger (ATR x, 0=aus)
+input bool    InpTrailing     = true;        // ATR Trailing Stop (nach TP1)
+input double  InpTrailMult    = 1.0;         // Trailing Stop Abstand (ATR x)
+
+//── CONFLUENCE GEWICHTUNGEN ({stype}) ─────────────────────────────
+input string  _Sec5           = "══ GEWICHTUNGEN ══";
+input int     W_EMA           = {W['ema']};   // EMA-Trend Gewicht (M15)
+input int     W_ADX           = {W['adx']};   // ADX-Stärke Gewicht
+input int     W_RSI           = {W['rsi']};   // RSI Zone Gewicht
+input int     W_MACD          = {W['macd']};  // MACD Gewicht
+input int     W_BB            = {W['bb']};    // Bollinger Bands Gewicht
+input int     W_STOCH         = {W['stoch']}; // Stochastic Gewicht
+input int     W_CCI           = {W['cci']};   // CCI Momentum Gewicht
+input int     W_VOL           = {W['vol']};   // Volumen Bestätigung Gewicht
+
+//══════════════════════════════════════════════════════════════════
+//  GLOBALE VARIABLEN
+//══════════════════════════════════════════════════════════════════
+
+CTrade trade;
+const ulong MAGIC = 20260624;
+
+//── Indikator-Handles M15 ─────────────────────────────────────────
+int hM_ATR, hM_RSI, hM_ADX, hM_EMA20, hM_EMA50, hM_EMA200;
+int hM_MACD, hM_BB, hM_STOCH, hM_CCI;
+
+//── Indikator-Handles H1 ──────────────────────────────────────────
+int hH1_EMA20, hH1_EMA50, hH1_RSI, hH1_MACD;
+
+//── Indikator-Handles H4 ──────────────────────────────────────────
+int hH4_EMA50, hH4_EMA200, hH4_ADX;
+
+//── Tages-Tracking ────────────────────────────────────────────────
+double   g_DayStartBalance = 0;
+datetime g_DayStart        = 0;
+datetime g_LastBar         = 0;
+
+//══════════════════════════════════════════════════════════════════
+//  OnInit
+//══════════════════════════════════════════════════════════════════
 int OnInit()
   {{
    trade.SetExpertMagicNumber(MAGIC);
-   h_atr    = iATR      (_Symbol, PERIOD_M15, 14);
-   h_rsi    = iRSI      (_Symbol, PERIOD_M15, 14, PRICE_CLOSE);
-   h_adx    = iADX      (_Symbol, PERIOD_M15, 14);
-   h_ema20  = iMA       (_Symbol, PERIOD_M15,  20, 0, MODE_EMA, PRICE_CLOSE);
-   h_ema50  = iMA       (_Symbol, PERIOD_M15,  50, 0, MODE_EMA, PRICE_CLOSE);
-   h_ema200 = iMA       (_Symbol, PERIOD_M15, 200, 0, MODE_EMA, PRICE_CLOSE);
-   h_macd   = iMACD     (_Symbol, PERIOD_M15,  12, 26, 9, PRICE_CLOSE);
-   h_bb     = iBands    (_Symbol, PERIOD_M15,  20, 0, 2.0, PRICE_CLOSE);
-   h_stoch  = iStochastic(_Symbol, PERIOD_M15,  5, 3, 3, MODE_SMA, STO_LOWHIGH);
-   if(h_atr == INVALID_HANDLE || h_rsi == INVALID_HANDLE)
-     {{ Alert("Fehler: Indikator-Handle ungueltig!"); return INIT_FAILED; }}
-   Print("CLAUDE+QUANT EA gestartet | Strategie: {stype} | WR={wr}% | Return={ret:+.1f}%");
+   trade.SetDeviationInPoints(20);
+
+   //── M15 Indikatoren ──────────────────────────────────────────
+   hM_ATR   = iATR        (_Symbol, PERIOD_M15, 14);
+   hM_RSI   = iRSI        (_Symbol, PERIOD_M15, 14,  PRICE_CLOSE);
+   hM_ADX   = iADX        (_Symbol, PERIOD_M15, 14);
+   hM_EMA20 = iMA         (_Symbol, PERIOD_M15, 20,  0, MODE_EMA, PRICE_CLOSE);
+   hM_EMA50 = iMA         (_Symbol, PERIOD_M15, 50,  0, MODE_EMA, PRICE_CLOSE);
+   hM_EMA200= iMA         (_Symbol, PERIOD_M15, 200, 0, MODE_EMA, PRICE_CLOSE);
+   hM_MACD  = iMACD       (_Symbol, PERIOD_M15, 12,  26, 9, PRICE_CLOSE);
+   hM_BB    = iBands      (_Symbol, PERIOD_M15, 20,  0, 2.0, PRICE_CLOSE);
+   hM_STOCH = iStochastic (_Symbol, PERIOD_M15, 5,   3, 3, MODE_SMA, STO_LOWHIGH);
+   hM_CCI   = iCCI        (_Symbol, PERIOD_M15, 20,  PRICE_TYPICAL);
+
+   //── H1 Indikatoren ───────────────────────────────────────────
+   hH1_EMA20= iMA   (_Symbol, PERIOD_H1, 20, 0, MODE_EMA, PRICE_CLOSE);
+   hH1_EMA50= iMA   (_Symbol, PERIOD_H1, 50, 0, MODE_EMA, PRICE_CLOSE);
+   hH1_RSI  = iRSI  (_Symbol, PERIOD_H1, 14, PRICE_CLOSE);
+   hH1_MACD = iMACD (_Symbol, PERIOD_H1, 12, 26, 9, PRICE_CLOSE);
+
+   //── H4 Indikatoren ───────────────────────────────────────────
+   hH4_EMA50 = iMA  (_Symbol, PERIOD_H4, InpH4EMA,       0, MODE_EMA, PRICE_CLOSE);
+   hH4_EMA200= iMA  (_Symbol, PERIOD_H4, InpH4EMA * 4,   0, MODE_EMA, PRICE_CLOSE);
+   hH4_ADX   = iADX (_Symbol, PERIOD_H4, 14);
+
+   //── Handle-Validierung ───────────────────────────────────────
+   if(hM_ATR  == INVALID_HANDLE || hM_RSI  == INVALID_HANDLE ||
+      hH1_RSI == INVALID_HANDLE || hH4_EMA50 == INVALID_HANDLE)
+     {{
+      Alert("FEHLER: Indikator-Handle ungueltig! Pruefe Symbol/Timeframe.");
+      return INIT_FAILED;
+     }}
+
+   g_DayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+   g_DayStart        = TimeCurrent();
+
+   Print("CLAUDE QUANT ELITE v2.0 | Strategie: {stype} | WR={wr}% | Return={ret:+.1f}%");
+   Print("H4-Filter: ", InpUseH4Filter ? "AN" : "AUS",
+         " | H1-Filter: ", InpUseH1Filter ? "AN" : "AUS",
+         " | Session: ", InpSessionStart, "-", InpSessionEnd, " UTC");
+   Print("SL=", InpSLMult, "R | TP1=", InpTP1Mult, "R | TP2=", InpTP2Mult, "R | BE=", InpBEAt, "R");
+
    return INIT_SUCCEEDED;
   }}
 
+//══════════════════════════════════════════════════════════════════
+//  OnDeinit
+//══════════════════════════════════════════════════════════════════
 void OnDeinit(const int reason)
   {{
-   int handles[] = {{h_atr,h_rsi,h_adx,h_ema20,h_ema50,h_ema200,h_macd,h_bb,h_stoch}};
-   for(int i=0; i<ArraySize(handles); i++) IndicatorRelease(handles[i]);
+   int h[] = {{hM_ATR, hM_RSI, hM_ADX, hM_EMA20, hM_EMA50, hM_EMA200,
+               hM_MACD, hM_BB, hM_STOCH, hM_CCI,
+               hH1_EMA20, hH1_EMA50, hH1_RSI, hH1_MACD,
+               hH4_EMA50, hH4_EMA200, hH4_ADX}};
+   for(int i = 0; i < ArraySize(h); i++)
+      if(h[i] != INVALID_HANDLE) IndicatorRelease(h[i]);
+   Comment("");
   }}
 
-//+------------------------------------------------------------------+
+//══════════════════════════════════════════════════════════════════
+//  OnTick — Haupt-Logik
+//══════════════════════════════════════════════════════════════════
 void OnTick()
   {{
-   // Nur auf neue M15-Kerze reagieren
-   static datetime last_bar = 0;
+   //── Tages-Reset ──────────────────────────────────────────────
+   MqlDateTime now_dt, day_dt;
+   TimeToStruct(TimeCurrent(),  now_dt);
+   TimeToStruct(g_DayStart,     day_dt);
+   if(now_dt.day != day_dt.day)
+     {{
+      g_DayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+      g_DayStart        = TimeCurrent();
+     }}
+
+   //── Position-Verwaltung (jeden Tick) ─────────────────────────
+   ManageTrades();
+   ShowDashboard();
+
+   //── Nur auf neue M15-Kerze reagieren ─────────────────────────
    datetime cur_bar = iTime(_Symbol, PERIOD_M15, 0);
-   if(cur_bar == last_bar) return;
-   last_bar = cur_bar;
+   if(cur_bar == g_LastBar) return;
+   g_LastBar = cur_bar;
 
-   // Break-Even pruefen (immer, auch außerhalb Session)
-   if(InpBreakEvenAt > 0.0) CheckBreakEven();
+   //── Vorflug-Checks ───────────────────────────────────────────
 
-   // Keine neue Position wenn bereits eine offen
-   if(PositionsTotal() > 0) return;
+   // Session-Filter: London/NY
+   MqlDateTime gmt;
+   TimeToStruct(TimeGMT(), gmt);
+   if(gmt.hour < InpSessionStart || gmt.hour >= InpSessionEnd) return;
 
-   // NUR in London/NY Session handeln (wie Python-Bot)
-   if(!InTradingSession()) return;
+   // Max. offene Positionen
+   if(CountMyPositions() >= InpMaxPositions) return;
 
-   // Signal berechnen
+   // Tages-Verlust-Limit
+   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+   if(g_DayStartBalance > 0)
+     {{
+      double day_dd = (g_DayStartBalance - balance) / g_DayStartBalance * 100.0;
+      if(day_dd >= InpMaxDailyDD) return;
+     }}
+
+   // Spread-Filter
+   long spread = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
+   if(spread > InpMaxSpread) return;
+
+   // ATR vorhanden
+   double atr = Buf(hM_ATR, 0, 1);
+   if(atr <= 0) return;
+
+   // Volatilitäts-Filter: kein Handel bei News-Spike (ATR > 3x Ø)
+   double atr_avg = 0;
+   for(int k = 1; k <= 20; k++) atr_avg += Buf(hM_ATR, 0, k);
+   atr_avg /= 20.0;
+   if(atr > atr_avg * 3.0) return;
+
+   //── Signal holen ─────────────────────────────────────────────
    int sig = GetSignal();
    if(sig == 0) return;
 
-   // ATR-basierte Lot-Groesse (1% Risiko)
-   double atr = Buf(h_atr, 0, 1);
-   if(atr <= 0) return;
-   double sl_pts   = atr * InpSLMult;
-   double risk_usd = AccountInfoDouble(ACCOUNT_BALANCE) * (InpRiskPct / 100.0);
-   double csize    = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE);
-   double lot      = NormalizeDouble(risk_usd / (sl_pts * csize), 2);
-   lot = MathMax(lot, SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN));
-   lot = MathMin(lot, SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX));
-
-   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-
-   if(sig == 1)  // BUY
-      trade.Buy (lot, _Symbol, ask, ask - sl_pts, ask + atr * InpTPMult, "C+Q BUY");
-   else           // SELL
-      trade.Sell(lot, _Symbol, bid, bid + sl_pts, bid - atr * InpTPMult, "C+Q SELL");
+   //── Trade öffnen ─────────────────────────────────────────────
+   OpenTrade(sig, atr);
   }}
 
-//+------------------------------------------------------------------+
-// Confluence-Score Signal-System
-//+------------------------------------------------------------------+
+//══════════════════════════════════════════════════════════════════
+//  GetSignal — Multi-Timeframe Confluence
+//══════════════════════════════════════════════════════════════════
 int GetSignal()
   {{
-   double ema20  = Buf(h_ema20,  0, 1);
-   double ema50  = Buf(h_ema50,  0, 1);
-   double ema200 = Buf(h_ema200, 0, 1);
-   double rsi    = Buf(h_rsi,    0, 1);
-   double adx    = Buf(h_adx,    0, 1);
-   double macd_l = Buf(h_macd,   0, 1);  // MACD Linie
-   double macd_s = Buf(h_macd,   1, 1);  // Signal Linie
-   double bb_up  = Buf(h_bb,     1, 1);  // BB Upper
-   double bb_lo  = Buf(h_bb,     2, 1);  // BB Lower
-   double close  = Buf(h_bb,     0, 1);  // Mittelband ~ Close
-   double stk    = Buf(h_stoch,  0, 1);  // Stoch %K
+   //── H4 Trend-Filter ──────────────────────────────────────────
+   int h4_bias = 0;
+   if(InpUseH4Filter)
+     {{
+      double h4e50  = Buf(hH4_EMA50,  0, 1);
+      double h4e200 = Buf(hH4_EMA200, 0, 1);
+      double h4adx  = Buf(hH4_ADX,    0, 1);
+      double h4c    = iClose(_Symbol, PERIOD_H4, 1);
 
-   if(ema20 == 0 || rsi == 0 || bb_up == 0) return 0;
+      if(h4e50 > 0 && h4e200 > 0 && h4c > 0)
+        {{
+         if(h4e50 > h4e200 && h4c > h4e50)  h4_bias =  1;
+         if(h4e50 < h4e200 && h4c < h4e50)  h4_bias = -1;
+        }}
+      if(h4adx < 15) return 0;  // H4 seitwärts → kein Trade
+     }}
 
-   int bs = 0, ss = 0;  // buy_score, sell_score
+   //── H1 Momentum-Filter ───────────────────────────────────────
+   int h1_bias = 0;
+   if(InpUseH1Filter)
+     {{
+      double h1e20  = Buf(hH1_EMA20, 0, 1);
+      double h1e50  = Buf(hH1_EMA50, 0, 1);
+      double h1rsi  = Buf(hH1_RSI,   0, 1);
+      double h1ml   = Buf(hH1_MACD,  0, 1);
+      double h1ms   = Buf(hH1_MACD,  1, 1);
 
-   // EMA-Trend
-   if(ema20 > ema50 && ema50 > ema200) bs += W_EMA;
-   else if(ema20 < ema50 && ema50 < ema200) ss += W_EMA;
+      if(h1e20 > h1e50) h1_bias++;   else h1_bias--;
+      if(h1ml  > h1ms)  h1_bias++;   else h1_bias--;
+      if(h1rsi > 50 && h1rsi < 80) h1_bias++;
+      if(h1rsi < 50 && h1rsi > 20) h1_bias--;
+     }}
 
-   // ADX + Richtung
+   // H4 und H1 dürfen nicht in entgegengesetzte Richtungen zeigen
+   if(InpUseH4Filter && InpUseH1Filter)
+     {{
+      if(h4_bias ==  1 && h1_bias <= -1) return 0;
+      if(h4_bias == -1 && h1_bias >=  1) return 0;
+     }}
+
+   //── M15 Entry Confluence Score ────────────────────────────────
+   double e20    = Buf(hM_EMA20,  0, 1);
+   double e50    = Buf(hM_EMA50,  0, 1);
+   double e200   = Buf(hM_EMA200, 0, 1);
+   double rsi    = Buf(hM_RSI,    0, 1);
+   double adx    = Buf(hM_ADX,    0, 1);
+   double macdl  = Buf(hM_MACD,   0, 1);
+   double macds  = Buf(hM_MACD,   1, 1);
+   double bb_up  = Buf(hM_BB,     1, 1);
+   double bb_lo  = Buf(hM_BB,     2, 1);
+   double bb_mid = Buf(hM_BB,     0, 1);
+   double stk    = Buf(hM_STOCH,  0, 1);
+   double stk_d  = Buf(hM_STOCH,  1, 1);
+   double cci    = Buf(hM_CCI,    0, 1);
+
+   if(e20 == 0 || rsi == 0 || adx == 0 || bb_up == 0) return 0;
+
+   // Kerzen-Analyse
+   double c_close = iClose(_Symbol, PERIOD_M15, 1);
+   double c_open  = iOpen (_Symbol, PERIOD_M15, 1);
+   double c_high  = iHigh (_Symbol, PERIOD_M15, 1);
+   double c_low   = iLow  (_Symbol, PERIOD_M15, 1);
+   double c_body  = MathAbs(c_close - c_open);
+   double c_range = c_high - c_low;
+   double body_pct= (c_range > 0) ? c_body / c_range : 0;
+   bool   bull_c  = (c_close > c_open && body_pct > 0.35);
+   bool   bear_c  = (c_close < c_open && body_pct > 0.35);
+
+   // Bollinger Band Metriken
+   double bb_pctb = (bb_up > bb_lo) ? (c_close - bb_lo) / (bb_up - bb_lo) : 0.5;
+   double bb_bw   = (bb_mid > 0)    ? (bb_up - bb_lo) / bb_mid * 100.0 : 0;
+
+   // Volumen-Ratio
+   long vol_cur = iVolume(_Symbol, PERIOD_M15, 1);
+   long vol_sum = 0;
+   for(int v = 2; v <= 21; v++) vol_sum += iVolume(_Symbol, PERIOD_M15, v);
+   long   vol_avg   = (vol_sum > 0) ? vol_sum / 20 : 1;
+   double vol_ratio = (double)vol_cur / (double)vol_avg;
+   bool   high_vol  = (vol_ratio >= InpVolMinRatio);
+
+   // Mindest-Volumen Pflicht
+   if(!high_vol) return 0;
+
+   int bs = 0, ss = 0;
+
+   //── 1. EMA-Trend M15 ─────────────────────────────────────────
+   if(e20 > e50 && e50 > e200)    bs += W_EMA;
+   if(e20 < e50 && e50 < e200)    ss += W_EMA;
+
+   //── 2. ADX Trend-Stärke ──────────────────────────────────────
    if(adx >= InpADXMin)
-     {{ if(macd_l > macd_s) bs += W_ADX; else ss += W_ADX; }}
+     {{
+      if(macdl > macds) bs += W_ADX;
+      else              ss += W_ADX;
+     }}
 
-   // RSI
+   //── 3. RSI Zone ──────────────────────────────────────────────
    if(rsi >= InpRSILowBuy  && rsi <= InpRSIHighBuy)  bs += W_RSI;
    if(rsi >= InpRSILowSell && rsi <= InpRSIHighSell) ss += W_RSI;
 
-   // MACD
-   if(macd_l > macd_s && macd_l > 0) bs += W_MACD;
-   else if(macd_l < macd_s && macd_l < 0) ss += W_MACD;
+   //── 4. MACD Richtung + Nulllinie ─────────────────────────────
+   if(macdl > macds && macdl > 0)  bs += W_MACD;
+   if(macdl < macds && macdl < 0)  ss += W_MACD;
 
-   // Bollinger Bands
-   if(close < bb_lo * 1.0005) bs += W_BB;
-   if(close > bb_up * 0.9995) ss += W_BB;
+   //── 5. Bollinger Bands Position + Squeeze ────────────────────
+   if(bb_pctb < 0.2 && bull_c) bs += W_BB;
+   if(bb_pctb > 0.8 && bear_c) ss += W_BB;
+   if(bb_bw > 0 && bb_bw < 1.5)  // BB Squeeze → Ausbruch
+     {{
+      if(bull_c) bs += W_BB / 2;
+      if(bear_c) ss += W_BB / 2;
+     }}
 
-   // Stochastic
-   if(stk < 25) bs += W_STOCH;
-   if(stk > 75) ss += W_STOCH;
+   //── 6. Stochastic ────────────────────────────────────────────
+   if(stk < 25 && stk > stk_d) bs += W_STOCH;
+   if(stk > 75 && stk < stk_d) ss += W_STOCH;
 
-   // Volumen-Filter: nur handeln wenn Volumen > Durchschnitt
-   long cur_vol = iVolume(_Symbol, PERIOD_M15, 1);
-   long avg_vol = 0;
-   for(int v = 2; v <= 21; v++) avg_vol += iVolume(_Symbol, PERIOD_M15, v);
-   avg_vol /= 20;
-   if(avg_vol > 0 && cur_vol < avg_vol * 0.8) return 0;  // zu wenig Volumen
+   //── 7. CCI Momentum ──────────────────────────────────────────
+   if(W_CCI > 0)
+     {{
+      if(cci >  100) bs += W_CCI;
+      if(cci < -100) ss += W_CCI;
+     }}
 
+   //── 8. Volumen-Bestätigung ────────────────────────────────────
+   if(W_VOL > 0)
+     {{
+      if(bull_c) bs += W_VOL;
+      if(bear_c) ss += W_VOL;
+     }}
+
+   //── 9. H1 Bias Bonus ─────────────────────────────────────────
+   if(InpUseH1Filter)
+     {{
+      if(h1_bias >= 2) bs += 2;
+      if(h1_bias <= -2) ss += 2;
+     }}
+
+   //── 10. H4 Trend Bonus (stärkster Filter) ────────────────────
+   if(InpUseH4Filter)
+     {{
+      if(h4_bias ==  1) bs += 3;
+      if(h4_bias == -1) ss += 3;
+     }}
+
+   //── Entscheidung ─────────────────────────────────────────────
    if(bs >= InpMinScore && bs > ss + 2) return  1;
    if(ss >= InpMinScore && ss > bs + 2) return -1;
    return 0;
   }}
 
-//+------------------------------------------------------------------+
-// Break-Even: SL auf Entry wenn Gewinn >= BE_AT * ATR
-//+------------------------------------------------------------------+
-void CheckBreakEven()
+//══════════════════════════════════════════════════════════════════
+//  OpenTrade — Dual TP: TP1 (50% Position) + TP2 (Runner)
+//══════════════════════════════════════════════════════════════════
+void OpenTrade(int dir, double atr)
   {{
-   double atr = Buf(h_atr, 0, 1);
-   if(atr <= 0) return;
-   double trigger = atr * InpBreakEvenAt;
+   double sl_pts  = atr * InpSLMult;
+   double tp1_pts = atr * InpTP1Mult;
+   double tp2_pts = atr * InpTP2Mult;
 
+   double bal    = AccountInfoDouble(ACCOUNT_BALANCE);
+   double risk   = bal * (InpRiskPct / 100.0);
+   double csize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE);
+   double full   = NormalizeDouble(risk / (sl_pts * csize), 2);
+   double minlot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double maxlot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+   double step   = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+
+   full = MathMax(full, minlot * 2);
+   full = MathMin(full, maxlot);
+   full = MathFloor(full / step) * step;
+
+   double half = NormalizeDouble(full / 2.0, 2);
+   half = MathMax(half, minlot);
+   half = MathFloor(half / step) * step;
+
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+   if(dir == 1)
+     {{
+      trade.Buy(half, _Symbol, ask, ask - sl_pts, ask + tp1_pts, "CQ-TP1");
+      if(InpTP2Mult > InpTP1Mult)
+         trade.Buy(half, _Symbol, ask, ask - sl_pts, ask + tp2_pts, "CQ-TP2");
+     }}
+   else
+     {{
+      trade.Sell(half, _Symbol, bid, bid + sl_pts, bid - tp1_pts, "CQ-TP1");
+      if(InpTP2Mult > InpTP1Mult)
+         trade.Sell(half, _Symbol, bid, bid + sl_pts, bid - tp2_pts, "CQ-TP2");
+     }}
+
+   PrintFormat("TRADE OPEN | %s | Lot:%.2fx2 | SL:%.2f | TP1:%.2f | TP2:%.2f | ATR:%.2f | Score OK",
+               dir == 1 ? "BUY" : "SELL", half, sl_pts, tp1_pts, tp2_pts, atr);
+  }}
+
+//══════════════════════════════════════════════════════════════════
+//  ManageTrades — Break-Even + Trailing Stop
+//══════════════════════════════════════════════════════════════════
+void ManageTrades()
+  {{
+   double atr = Buf(hM_ATR, 0, 1);
+   if(atr <= 0) return;
+
+   bool   tp1_open   = false;
+   bool   tp2_open   = false;
+   ulong  tp2_ticket = 0;
+
+   // Positionen scannen
    for(int i = PositionsTotal() - 1; i >= 0; i--)
      {{
       ulong ticket = PositionGetTicket(i);
       if(!PositionSelectByTicket(ticket)) continue;
-      if(PositionGetInteger(POSITION_MAGIC)  != (long)MAGIC)  continue;
-      if(PositionGetString(POSITION_SYMBOL)  != _Symbol) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != (long)MAGIC) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      string cmt = PositionGetString(POSITION_COMMENT);
+      if(StringFind(cmt, "CQ-TP1") >= 0) tp1_open = true;
+      if(StringFind(cmt, "CQ-TP2") >= 0) {{ tp2_open = true; tp2_ticket = ticket; }}
+     }}
 
-      double entry = PositionGetDouble(POSITION_PRICE_OPEN);
-      double sl    = PositionGetDouble(POSITION_SL);
-      double tp    = PositionGetDouble(POSITION_TP);
-      long   ptype = PositionGetInteger(POSITION_TYPE);
-
-      if(ptype == POSITION_TYPE_BUY)
+   // TP1 wurde getroffen (TP1 weg, TP2 noch offen) → BE für TP2
+   if(!tp1_open && tp2_open && tp2_ticket > 0 && InpBEAt > 0.0)
+     {{
+      if(PositionSelectByTicket(tp2_ticket))
         {{
-         double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-         if(bid - entry >= trigger && sl < entry - _Point)
-            trade.PositionModify(ticket, entry + _Point, tp);
+         double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+         double sl    = PositionGetDouble(POSITION_SL);
+         double tp    = PositionGetDouble(POSITION_TP);
+         long   ptype = PositionGetInteger(POSITION_TYPE);
+
+         if(ptype == POSITION_TYPE_BUY && sl < entry - _Point)
+            trade.PositionModify(tp2_ticket, entry + _Point, tp);
+         else if(ptype == POSITION_TYPE_SELL && sl > entry + _Point)
+            trade.PositionModify(tp2_ticket, entry - _Point, tp);
         }}
-      else
+     }}
+
+   // ATR Trailing Stop für TP2 Runner
+   if(InpTrailing && tp2_open && tp2_ticket > 0)
+     {{
+      if(PositionSelectByTicket(tp2_ticket))
         {{
-         double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-         if(entry - ask >= trigger && sl > entry + _Point)
-            trade.PositionModify(ticket, entry - _Point, tp);
+         double sl    = PositionGetDouble(POSITION_SL);
+         double tp    = PositionGetDouble(POSITION_TP);
+         double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+         long   ptype = PositionGetInteger(POSITION_TYPE);
+         double trail = atr * InpTrailMult;
+
+         if(ptype == POSITION_TYPE_BUY)
+           {{
+            double bid    = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+            double new_sl = bid - trail;
+            // Nur ziehen wenn über Entry (Gewinn gesichert) und sinnvoll
+            if(new_sl > entry && new_sl > sl + _Point && new_sl < tp - _Point)
+               trade.PositionModify(tp2_ticket, new_sl, tp);
+           }}
+         else
+           {{
+            double ask    = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+            double new_sl = ask + trail;
+            if(new_sl < entry && new_sl < sl - _Point && new_sl > tp + _Point)
+               trade.PositionModify(tp2_ticket, new_sl, tp);
+           }}
+        }}
+     }}
+
+   // Break-Even für TP1 Positionen (falls TP1=TP2 oder nur eine Position)
+   if(InpBEAt > 0.0)
+     {{
+      double trigger = atr * InpBEAt;
+      for(int i = PositionsTotal() - 1; i >= 0; i--)
+        {{
+         ulong ticket = PositionGetTicket(i);
+         if(!PositionSelectByTicket(ticket)) continue;
+         if(PositionGetInteger(POSITION_MAGIC) != (long)MAGIC) continue;
+         if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+
+         double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+         double sl    = PositionGetDouble(POSITION_SL);
+         double tp    = PositionGetDouble(POSITION_TP);
+         long   ptype = PositionGetInteger(POSITION_TYPE);
+
+         if(ptype == POSITION_TYPE_BUY)
+           {{
+            double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+            if(bid - entry >= trigger && sl < entry - _Point)
+               trade.PositionModify(ticket, entry + _Point, tp);
+           }}
+         else
+           {{
+            double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+            if(entry - ask >= trigger && sl > entry + _Point)
+               trade.PositionModify(ticket, entry - _Point, tp);
+           }}
         }}
      }}
   }}
 
-//+------------------------------------------------------------------+
-// Hilfsfunktion: Indikator-Buffer auslesen
-//+------------------------------------------------------------------+
+//══════════════════════════════════════════════════════════════════
+//  ShowDashboard — Chart Comment
+//══════════════════════════════════════════════════════════════════
+void ShowDashboard()
+  {{
+   double balance  = AccountInfoDouble(ACCOUNT_BALANCE);
+   double equity   = AccountInfoDouble(ACCOUNT_EQUITY);
+   double day_pl   = balance - g_DayStartBalance;
+   double atr      = Buf(hM_ATR, 0, 1);
+   double h4e50    = Buf(hH4_EMA50,  0, 1);
+   double h4e200   = Buf(hH4_EMA200, 0, 1);
+   double h1rsi    = Buf(hH1_RSI,    0, 1);
+   double m15rsi   = Buf(hM_RSI,     0, 1);
+
+   MqlDateTime gmt;
+   TimeToStruct(TimeGMT(), gmt);
+   bool in_sess = (gmt.hour >= InpSessionStart && gmt.hour < InpSessionEnd);
+
+   string h4_str = (h4e50 > h4e200) ? "BULLISH" : (h4e50 < h4e200 ? "BEARISH" : "NEUTRAL");
+   string sess_str = in_sess ? "AKTIV (London/NY)" : "WARTEN (Asian)";
+
+   Comment(StringFormat(
+      "╔══════════════════════════════════════╗\\n"
+      "║  CLAUDE QUANT ELITE v2.0             ║\\n"
+      "║  Strategie : %-22s ║\\n"
+      "╠══════════════════════════════════════╣\\n"
+      "║  Balance  : %10.2f USD          ║\\n"
+      "║  Equity   : %10.2f USD          ║\\n"
+      "║  Tag P&L  : %+10.2f USD         ║\\n"
+      "╠══════════════════════════════════════╣\\n"
+      "║  H4 Trend : %-22s ║\\n"
+      "║  H1 RSI   : %5.1f                    ║\\n"
+      "║  M15 RSI  : %5.1f                    ║\\n"
+      "║  ATR M15  : %8.2f                ║\\n"
+      "╠══════════════════════════════════════╣\\n"
+      "║  Session  : %-22s ║\\n"
+      "║  Positionen: %2d                       ║\\n"
+      "╚══════════════════════════════════════╝",
+      "{stype}", balance, equity, day_pl,
+      h4_str, h1rsi, m15rsi, atr,
+      sess_str, CountMyPositions()));
+  }}
+
+//══════════════════════════════════════════════════════════════════
+//  Hilfsfunktionen
+//══════════════════════════════════════════════════════════════════
+
+int CountMyPositions()
+  {{
+   int count = 0;
+   for(int i = 0; i < PositionsTotal(); i++)
+     {{
+      ulong t = PositionGetTicket(i);
+      if(!PositionSelectByTicket(t)) continue;
+      if(PositionGetInteger(POSITION_MAGIC) == (long)MAGIC &&
+         PositionGetString(POSITION_SYMBOL) == _Symbol) count++;
+     }}
+   return count;
+  }}
+
 double Buf(int handle, int buffer, int shift)
   {{
    double arr[];
@@ -651,6 +1048,9 @@ double Buf(int handle, int buffer, int shift)
    if(CopyBuffer(handle, buffer, shift, 1, arr) <= 0) return 0.0;
    return arr[0];
   }}
+
+//+------------------------------------------------------------------+
+// Ende CLAUDE QUANT ELITE v2.0
 //+------------------------------------------------------------------+
 """
     return code
