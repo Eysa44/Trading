@@ -843,7 +843,17 @@ def volume_ratio(candles, period=20):
     """Volumen-Ratio: aktuell vs. Durchschnitt. Gibt (ratio, is_high_vol) zurück."""
     if len(candles) < period + 1:
         return 1.0, False
-    vols = [c.get("tick_volume", c.get("volume", 1)) for c in candles]
+    vols = []
+    for c in candles:
+        # Kompatibel mit dict UND numpy.void (MT5-Daten)
+        try:
+            v = float(c["tick_volume"])
+        except (KeyError, TypeError):
+            try:
+                v = float(c["volume"])
+            except (KeyError, TypeError):
+                v = 1.0
+        vols.append(v)
     avg  = sum(vols[-(period + 1):-1]) / period
     cur  = vols[-1]
     ratio = round(cur / avg, 2) if avg > 0 else 1.0
