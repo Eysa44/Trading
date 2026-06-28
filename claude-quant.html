@@ -431,6 +431,7 @@ body {
       <div class="cf-box"><div class="lbl">ADX</div><div class="val" id="cfAdx">—</div></div>
       <div class="cf-box"><div class="lbl">RSI</div><div class="val" id="cfRsi">—</div></div>
       <div class="cf-box"><div class="lbl">H4 TREND</div><div class="val" id="cfH4">—</div></div>
+      <div class="cf-box" style="grid-column:span 3"><div class="lbl">REGIME (Choppiness Index)</div><div class="val" id="cfRegime" style="font-size:11px">—</div></div>
     </div>
   </div>
 
@@ -872,6 +873,15 @@ function applyRealData(d) {
   set('cfRsi',    ind.rsi ? ind.rsi.toFixed(1) : '—', ind.rsi > 70 || ind.rsi < 30 ? 'var(--red)' : 'var(--text)');
   const h4 = ind.h4_trend || '';
   set('cfH4', h4.toUpperCase() || '—', h4==='bullish'?'var(--green)':h4==='bearish'?'var(--red)':'var(--dim)');
+  const regime = ind.regime || '';
+  const ci     = ind.ci != null ? ind.ci.toFixed(1) : '—';
+  const regText = regime === 'RANGE'
+    ? `RANGE  CI=${ci}  (BB+RSI Bounce)`
+    : regime === 'TREND'
+    ? `TREND  CI=${ci}  (VWAP+H4)`
+    : `CI=${ci}`;
+  const regCol = regime === 'RANGE' ? 'var(--orange)' : regime === 'TREND' ? 'var(--green)' : 'var(--dim)';
+  set('cfRegime', regText, regCol);
 
   // ── TICKER BAR ──
   const ses = ind.session;
@@ -1238,6 +1248,12 @@ function applyOfflineIndicators(ind, price) {
                 ind.rsi > 70 || ind.rsi < 30 ? 'var(--red)' : 'var(--text)');
   set('cfH4',   struct.toUpperCase(),
                 struct === 'bullish' ? 'var(--green)' : 'var(--red)');
+  // Regime (offline: einfache Heuristik)
+  const ciOff = (ind.adx > 25 && Math.abs(ind.macd.hist) > 0.5) ? 42 : 61;
+  const regOff = ciOff > 56 ? 'RANGE' : 'TREND';
+  set('cfRegime',
+      regOff === 'RANGE' ? `RANGE  CI≈${ciOff}  (BB+RSI Bounce)` : `TREND  CI≈${ciOff}  (VWAP+H4)`,
+      regOff === 'RANGE' ? 'var(--orange)' : 'var(--green)');
 
   // Ticker bar
   const h4col = struct === 'bullish' ? 'var(--green)' : 'var(--red)';

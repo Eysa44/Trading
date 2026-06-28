@@ -25,6 +25,7 @@ API ENDPOINTS:
 
 import time
 import json
+import math
 import random as _random
 import threading
 from datetime import datetime, timezone
@@ -880,6 +881,31 @@ def volume_ratio(candles, period=20):
     return ratio, ratio >= 1.3
 
 
+def choppiness_index(rates, period=14):
+    """
+    Choppiness Index: misst ob der Markt trendet oder seitwärts läuft.
+    CI < 38.2 = starker Trend | CI > 61.8 = choppy/ranging
+    Wir verwenden 56.0 als Schwellenwert (konservativ).
+    """
+    if len(rates) < period + 2:
+        return 50.0
+    seg = list(rates)[-(period + 1):]
+    hh = max(r["high"]  for r in seg[1:])
+    ll = min(r["low"]   for r in seg[1:])
+    range_hl = hh - ll
+    if range_hl <= 0:
+        return 50.0
+    sum_tr = sum(
+        max(seg[i]["high"] - seg[i]["low"],
+            abs(seg[i]["high"] - seg[i-1]["close"]),
+            abs(seg[i]["low"]  - seg[i-1]["close"]))
+        for i in range(1, len(seg))
+    )
+    if sum_tr <= 0:
+        return 50.0
+    return round(100.0 * math.log10(sum_tr / range_hl) / math.log10(period), 1)
+
+
 # ── SIGNAL ENGINE ─────────────────────────────────────────────────────────────
 
 def get_bars(symbol, timeframe, n=250):
@@ -944,6 +970,42 @@ def _single_strategy_signal(rates, strat=None):
     h4_trend = get_h4_trend()
     session  = in_session()
     vol_ok   = vol_confirmed(list(rates))
+
+    # ── MARKET REGIME DETECTION (Choppiness Index) ───────────────────────────
+    ci_val     = choppiness_index(list(rates), 14)
+    is_ranging = ci_val > 56.0 and adx_v < 35  # choppy & kein Trend
+
+    if is_ranging:
+        # RANGE MODE: BB-Bounce + RSI-Extreme (H4-Filter nicht nötig)
+        rb = rs = 0
+        if rsi_v < 30:                        rb += 5
+        elif rsi_v < 35:                      rb += 2
+        if rsi_v > 70:                        rs += 5
+        elif rsi_v > 65:                      rs += 2
+        if bb_pctb is not None:
+            if bb_pctb < 0.15:                rb += 4
+            if bb_pctb > 0.85:                rs += 4
+        if stk < 20 and stk > stk_d:          rb += 3
+        if stk > 80 and stk < stk_d:          rs += 3
+
+        range_sig = None
+        if session and vol_ok:
+            if rb >= 7 and rb > rs + 2:       range_sig = "BUY"
+            elif rs >= 7 and rs > rb + 2:     range_sig = "SELL"
+
+        range_ind = {
+            "ema20": round(ef[-1], 2), "ema50": round(em[-1], 2),
+            "ema200": round(es[-1], 2), "rsi": round(rsi_v, 1),
+            "atr": round(atr_v, 2), "adx": round(adx_v, 1),
+            "macd_hist": round(mh[-1], 5), "structure": struct,
+            "bb_pctb": round(bb_pctb, 3) if bb_pctb is not None else None,
+            "bb_bandwidth": round(bb_bw, 2) if bb_bw is not None else None,
+            "stoch_k": round(stk, 1), "stoch_d": round(stk_d, 1),
+            "h4_trend": h4_trend, "session": session,
+            "buy_score": rb, "sell_score": rs, "min_score": 7,
+            "regime": "RANGE", "ci": ci_val, "strategy_type": stype,
+        }
+        return range_sig, range_ind
 
     # ── CONFLUENCE SCORING (Gewichtung aus Strategie-Typ) ────────────────────
     buy_score = sell_score = 0
@@ -1115,6 +1177,8 @@ def _single_strategy_signal(rates, strat=None):
         "sell_score":     sell_score,
         "min_score":      MIN_SCORE,
         "strategy_type":  stype,
+        "regime":         "TREND",
+        "ci":             ci_val,
     }
 
     return signal, indicators
