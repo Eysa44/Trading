@@ -216,6 +216,22 @@ def print_top(results, n=10, balance=START_BALANCE):
         print(f"    Score          : {best['score']}")
     print("=" * 88 + "\n")
 
+    # ── BESTE STRATEGIE JE TYP ────────────────────────────────────────────────
+    best_per_type = {}
+    for r in results:
+        st = r["strat"].get("strategy_type", "BALANCED")
+        if st not in best_per_type or r["score"] > best_per_type[st]["score"]:
+            best_per_type[st] = r
+    if best_per_type:
+        print("  ELITE-RANGLISTE (Bestes Ergebnis je Strategie-Typ):")
+        print(f"  {'TYP':>12}  {'WR':>6}  {'PF':>5}  {'RETURN':>8}  {'SCORE':>7}")
+        print("  " + "-" * 60)
+        for st, r in sorted(best_per_type.items(), key=lambda x: x[1]["score"], reverse=True):
+            m = r["metrics"]
+            print(f"  {st:>12}  {m['win_rate']:>5.1f}%  {m['profit_factor']:>5.2f}  "
+                  f"{m['return_pct']:>+7.1f}%  {r['score']:>7.4f}")
+        print()
+
 
 def apply_best_params(best_strat):
     """Schreibt die besten Parameter in best_params.json fuer den Bot."""
@@ -311,9 +327,15 @@ def main():
     n_random = int(n_trials * 0.70)
     n_evolve = n_trials - n_random
 
-    print(f"  Phase 1: {n_random} Zufalls-Versuche...")
+    # Phase 1: Erste len(STRATEGY_TYPES)*2 Versuche = Round-Robin (jeder Typ 2×)
+    # Rest = echte Zufallssuche → verhindert VWAP_TREND-Dominanz
+    n_types     = len(STRATEGY_TYPES)
+    rr_end      = min(n_types * 2, n_random)   # Round-Robin bis hier
+    print(f"  Phase 1: {n_random} Versuche  ({rr_end} Round-Robin + {n_random-rr_end} Zufall)...")
     for trial in range(n_random):
         strat = random_trial(seed=trial * 7 + 13)
+        if trial < rr_end:
+            strat["strategy_type"] = STRATEGY_TYPES[trial % n_types]   # garantierter Typ
         strat["name"] = f"R-{trial+1}"
         m = walk_forward_score(candles, strat, balance=balance)
         s = score(m)
@@ -331,10 +353,20 @@ def main():
                   f"(${balance:.0f}→${best_fb:.2f}, {p_sign}${profit:.2f})  ETA: {int(eta)}s")
 
     # Phase 2: Evolutionäre Verbesserung (30% der Versuche)
+    # Elite = bestes Ergebnis JE Strategie-Typ → echte Vielfalt beim Evolvieren
     results.sort(key=lambda x: x["score"], reverse=True)
-    elite = results[:max(len(results) // 5, 5)]  # top 20% als Eltern
+    best_per = {}
+    for r in results:
+        st = r["strat"].get("strategy_type", "BALANCED")
+        if st not in best_per or r["score"] > best_per[st]["score"]:
+            best_per[st] = r
+    elite = list(best_per.values())
+    # Falls ein Typ gar kein gültiges Ergebnis hat: mit globalen Top-5 auffüllen
+    for r in results[:5]:
+        if not any(e is r for e in elite):
+            elite.append(r)
     if elite and n_evolve > 0:
-        print(f"\n  Phase 2: {n_evolve} Evolutionäre Versuche (Mutation + Kreuzung der Top {len(elite)})...")
+        print(f"\n  Phase 2: {n_evolve} Evolutionäre Versuche  (Elite: {len(elite)} Typen = {', '.join(e['strat'].get('strategy_type','?')[:6] for e in elite[:6])}...)...")
         for evo in range(n_evolve):
             parent = random.choice(elite)["strat"]
             if evo % 3 == 0 and len(elite) >= 2:

@@ -363,6 +363,7 @@ def precompute_signals(candles, strat):
     """
     Berechnet EMA/MACD/ATR einmal für alle Kerzen vor (statt jede Kerze neu).
     Spart ~70% Rechenzeit bei großen Datensätzen.
+    Enthält H4-Filter-Simulation + Choppiness-Index-Regime (wie Live-EA).
     """
     n      = len(candles)
     closes = [c["close"] for c in candles]
@@ -386,6 +387,23 @@ def precompute_signals(candles, strat):
         atrs[p] = sum(trs[1:p+1]) / p
         for i in range(p+1, n):
             atrs[i] = (atrs[i-1] * (p-1) + trs[i]) / p
+
+    # ── H4-TREND SIMULATION (16 × M15 = 1 H4) ───────────────────────────────
+    H4 = 16
+    h4_closes = [candles[j + H4 - 1]["close"] for j in range(0, n - H4, H4)]
+    if len(h4_closes) >= 50:
+        h4_ema = ema_series(h4_closes, 50)
+    else:
+        h4_ema = h4_closes[:]
+    # h4_bias[i]: +1 bullish, -1 bearish, 0 neutral
+    h4_bias = []
+    for i in range(n):
+        hi = min(i // H4, len(h4_ema) - 1)
+        if hi < 0 or hi >= len(h4_closes):
+            h4_bias.append(0)
+        else:
+            diff = h4_closes[hi] - h4_ema[hi]
+            h4_bias.append(1 if diff > 0.5 else (-1 if diff < -0.5 else 0))
 
     stype     = strat.get("strategy_type", "BALANCED")
     W         = STRATEGY_WEIGHTS.get(stype, STRATEGY_WEIGHTS["BALANCED"])
@@ -512,9 +530,49 @@ def precompute_signals(candles, strat):
                 if cur["close"] > cur["open"]: buy_score  += W["vol"]
                 else:                          sell_score += W["vol"]
 
-        sig = None
-        if buy_score  >= min_score and buy_score  > sell_score + 2: sig = "BUY"
-        elif sell_score >= min_score and sell_score > buy_score  + 2: sig = "SELL"
+        # ── CHOPPINESS INDEX (inline, 14-Perioden) ───────────────────────────
+        ci_v = 50.0
+        if i >= 15:
+            cs = candles[i-14:i+1]
+            hh = max(c["high"] for c in cs[1:])
+            ll = min(c["low"]  for c in cs[1:])
+            rl = hh - ll
+            if rl > 0:
+                str_atr = sum(
+                    max(cs[j]["high"] - cs[j]["low"],
+                        abs(cs[j]["high"] - cs[j-1]["close"]),
+                        abs(cs[j]["low"]  - cs[j-1]["close"]))
+                    for j in range(1, 15)
+                )
+                if str_atr > 0:
+                    ci_v = 100.0 * math.log10(str_atr / rl) / math.log10(14)
+
+        is_ranging = ci_v > 56.0 and adx_v < 35
+
+        if is_ranging:
+            # RANGE MODE: BB-Bounce + RSI-Extreme (H4-Filter deaktiviert)
+            rb = rs = 0
+            if rsi_v < 30:                        rb += 5
+            elif rsi_v < 35:                      rb += 2
+            if rsi_v > 70:                        rs += 5
+            elif rsi_v > 65:                      rs += 2
+            if bb_pctb is not None:
+                if bb_pctb < 0.15:                rb += 4
+                if bb_pctb > 0.85:                rs += 4
+            if stk < 20 and stk > stk_d:          rb += 3
+            if stk > 80 and stk < stk_d:          rs += 3
+            sig = None
+            if rb >= 7 and rb > rs + 2:           sig = "BUY"
+            elif rs >= 7 and rs > rb + 2:         sig = "SELL"
+        else:
+            # TREND MODE: H4 Hard Gate anwenden
+            hb = h4_bias[i]
+            if hb > 0:   sell_score = 0   # H4 bullish → nur BUY
+            elif hb < 0: buy_score  = 0   # H4 bearish → nur SELL
+
+            sig = None
+            if buy_score  >= min_score and buy_score  > sell_score + 2: sig = "BUY"
+            elif sell_score >= min_score and sell_score > buy_score  + 2: sig = "SELL"
 
         signals[i] = (sig, atr_v)
 
