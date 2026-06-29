@@ -72,7 +72,7 @@ input double  InpSLMult       = 2.0;   // Stop Loss (ATR x)
 input double  InpTP1Mult      = 2.0;  // Take Profit 1 (ATR x) — 50% sofort sichern
 input bool    InpTP2NoLimit   = true;        // TP2 ohne fixes Ziel (nur ATR-Trail) — Elite-Modus
 input double  InpTP2Mult      = 4.0;  // Take Profit 2 fix (wenn InpTP2NoLimit=false)
-input double  InpBEAt         = 1.0;     // Break-Even nach TP1 (ATR x, 0=aus)
+input double  InpBEAt         = 0.0;     // Break-Even unabhaengig (ATR x, 0=aus) — TP1-Hit macht BE automatisch
 input bool    InpTrailing     = true;        // ATR Trailing Stop aktiv
 input double  InpTrailMult    = 2.0;         // Trailing Stop Abstand (ATR x) — mehr Luft für Runner
 input double  InpTrailActivate= 1.0;         // Trail startet ab X*ATR Gewinn — erst nach solidem Profit
@@ -627,8 +627,8 @@ void ManageTrades()
       if(StringFind(cmt, "CQ-TP2") >= 0) { tp2_open = true; tp2_ticket = ticket; }
      }
 
-   // TP1 wurde getroffen (TP1 weg, TP2 noch offen) → BE für TP2
-   if(!tp1_open && tp2_open && tp2_ticket > 0 && InpBEAt > 0.0)
+   // TP1 wurde getroffen (TP1 weg, TP2 noch offen) → BE immer automatisch
+   if(!tp1_open && tp2_open && tp2_ticket > 0)
      {
       if(PositionSelectByTicket(tp2_ticket))
         {

@@ -45,7 +45,7 @@ TIMEFRAME    = 16385       # mt5.TIMEFRAME_M15
 RISK_PCT     = 1.0         # % des Kontos (SELF-LEARN Modus)
 ATR_SL_MULT    = 1.5
 ATR_TP_MULT    = 2.5         # Enger TP → höhere Win Rate
-BREAK_EVEN_AT  = 1.0         # Nach 1×ATR Gewinn: SL auf Entry (0 = deaktiviert)
+BREAK_EVEN_AT  = 0.0         # 0 = deaktiviert (TP1-Teilschluss schützt automatisch)
 EMA_FAST     = 20
 EMA_MID      = 50
 EMA_SLOW     = 200

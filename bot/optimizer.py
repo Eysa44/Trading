@@ -47,7 +47,7 @@ SEARCH_SPACE = {
     # Höhere Mindest-Scores → selektivere, qualitativ bessere Signale
     "min_score":      [8, 9, 10, 11, 12, 13, 14],
     "strategy_type":  STRATEGY_TYPES,
-    "break_even_at":  [0.0, 0.5, 0.8, 1.0, 1.2],
+    "break_even_at":  [0.0, 2.0, 2.5, 3.0],   # 0=aus (TP1 macht BE auto), >2.0 = nur nach TP1-Level
     # 2-Kerzen-Bestätigung: Signal muss auf 2 aufeinanderfolgenden Kerzen erscheinen
     "confirm_bars":   [1, 2],
     # Wochentag-Filter: Mon-Open und Freitag-Close überspringen
@@ -567,7 +567,7 @@ input double  InpSLMult       = {sl_mult};   // Stop Loss (ATR x)
 input double  InpTP1Mult      = {tp1_mult};  // Take Profit 1 (ATR x) — 50% sofort sichern
 input bool    InpTP2NoLimit   = true;        // TP2 ohne fixes Ziel (nur ATR-Trail) — Elite-Modus
 input double  InpTP2Mult      = {tp2_mult};  // Take Profit 2 fix (wenn InpTP2NoLimit=false)
-input double  InpBEAt         = {be_at};     // Break-Even nach TP1 (ATR x, 0=aus)
+input double  InpBEAt         = 0.0;         // Break-Even unabhaengig (0=aus) — TP1-Hit macht BE automatisch
 input bool    InpTrailing     = true;        // ATR Trailing Stop aktiv
 input double  InpTrailMult    = 2.0;         // Trailing Stop Abstand (ATR x) — mehr Luft fuer Runner
 input double  InpTrailActivate= 1.0;         // Trail startet ab X*ATR Gewinn — erst nach solidem Profit
@@ -1122,8 +1122,8 @@ void ManageTrades()
       if(StringFind(cmt, "CQ-TP2") >= 0) {{ tp2_open = true; tp2_ticket = ticket; }}
      }}
 
-   // TP1 wurde getroffen (TP1 weg, TP2 noch offen) → BE für TP2
-   if(!tp1_open && tp2_open && tp2_ticket > 0 && InpBEAt > 0.0)
+   // TP1 wurde getroffen (TP1 weg, TP2 noch offen) → BE immer automatisch
+   if(!tp1_open && tp2_open && tp2_ticket > 0)
      {{
       if(PositionSelectByTicket(tp2_ticket))
         {{
