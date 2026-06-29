@@ -343,32 +343,34 @@ int GetSignal()
       if(bb_upR <= 0 || rsiR <= 0) return 0;
       double pctbR = (bb_upR > bb_loR) ? (closeR - bb_loR) / (bb_upR - bb_loR) : 0.5;
 
-      // Range-Mode braucht schwächeren ADX (kein starker Trend)
-      if(adxR > 35) { g_Regime = 1; goto trend_mode; }  // doch Trend erkannt
+      // ADX > 35 = doch Trend erkannt → Range-Logik überspringen
+      if(adxR <= 35)
+        {
+         int rbs = 0, rss = 0;
 
-      int rbs = 0, rss = 0;
+         // RSI-Extreme: Hauptsignal
+         if(rsiR < 30 && closeR < openR) rbs += 5;   // überverkauft → BUY
+         if(rsiR > 70 && closeR > openR) rss += 5;   // überkauft → SELL
+         if(rsiR < 35) rbs += 2;
+         if(rsiR > 65) rss += 2;
 
-      // RSI-Extreme: Hauptsignal
-      if(rsiR < 30 && closeR < openR) rbs += 5;   // überverkauft → BUY
-      if(rsiR > 70 && closeR > openR) rss += 5;   // überkauft → SELL
-      if(rsiR < 35) rbs += 2;
-      if(rsiR > 65) rss += 2;
+         // BB-Bounce: zweites Hauptsignal
+         if(pctbR < 0.15) rbs += 4;   // am unteren Band
+         if(pctbR > 0.85) rss += 4;   // am oberen Band
 
-      // BB-Bounce: zweites Hauptsignal
-      if(pctbR < 0.15) rbs += 4;   // am unteren Band
-      if(pctbR > 0.85) rss += 4;   // am oberen Band
+         // Stochastic-Bestätigung
+         if(stkR < 20 && stkR > stkDR) rbs += 3;
+         if(stkR > 80 && stkR < stkDR) rss += 3;
 
-      // Stochastic-Bestätigung
-      if(stkR < 20 && stkR > stkDR) rbs += 3;
-      if(stkR > 80 && stkR < stkDR) rss += 3;
-
-      // Nur handeln wenn beide Indikatoren übereinstimmen
-      if(rbs >= 7 && rbs > rss + 2) return  1;
-      if(rss >= 7 && rss > rbs + 2) return -1;
-      return 0;
+         // Nur handeln wenn beide Indikatoren übereinstimmen
+         if(rbs >= 7 && rbs > rss + 2) return  1;
+         if(rss >= 7 && rss > rbs + 2) return -1;
+         return 0;
+        }
+      // ADX > 35: fällt durch in Trend-Modus
+      g_Regime = 1;
      }
 
-   trend_mode:
    //── TREND MODE: originale Logik ──────────────────────────────
 
    //── H4 Trend-Filter ──────────────────────────────────────────
