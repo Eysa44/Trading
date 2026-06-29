@@ -1,9 +1,78 @@
 {
-  "timestamp": "2026-06-24T13:37:24.950046",
+  "timestamp": "2026-06-29T12:52:45.241416",
   "symbol": "XAUUSD",
-  "candles": 1000,
-  "trials": 5,
-  "valid": 0,
+  "candles": 500,
+  "trials": 40,
+  "valid": 2,
   "data_source": "Synthetisch",
-  "top10": []
+  "top10": [
+    {
+      "rank": 1,
+      "params": {
+        "adx_min": 18,
+        "rsi_low_b": 30,
+        "rsi_high_b": 65,
+        "rsi_low_s": 40,
+        "rsi_high_s": 55,
+        "sl_mult": 2.0,
+        "tp_mult": 4.0,
+        "need_pattern": false,
+        "min_score": 13,
+        "strategy_type": "REVERSAL",
+        "break_even_at": 1.0,
+        "confirm_bars": 1,
+        "day_filter": true,
+        "name": "E-5"
+      },
+      "metrics": {
+        "total_trades": 11,
+        "win_rate": 54.5,
+        "profit_factor": 1.48,
+        "start_balance": 10000.0,
+        "final_balance": 10048.5,
+        "total_profit": 48.5,
+        "return_pct": 0.48,
+        "max_drawdown": 1.0,
+        "sharpe": 0.32,
+        "avg_win": 75.0,
+        "avg_loss": -101.5,
+        "biggest_win": 100.0,
+        "biggest_loss": -101.5
+      },
+      "score": 0.2354
+    },
+    {
+      "rank": 2,
+      "params": {
+        "name": "R-9",
+        "adx_min": 18,
+        "rsi_low_b": 30,
+        "rsi_high_b": 65,
+        "rsi_low_s": 40,
+        "rsi_high_s": 55,
+        "sl_mult": 2.0,
+        "tp_mult": 4.0,
+        "need_pattern": false,
+        "min_score": 14,
+        "strategy_type": "REVERSAL",
+        "break_even_at": 1.0
+      },
+      "metrics": {
+        "total_trades": 12,
+        "win_rate": 54.2,
+        "profit_factor": 1.48,
+        "start_balance": 10000.0,
+        "final_balance": 10048.5,
+        "total_profit": 48.5,
+        "return_pct": 0.48,
+        "max_drawdown": 1.0,
+        "sharpe": 0.32,
+        "avg_win": 75.0,
+        "avg_loss": -101.5,
+        "biggest_win": 100.0,
+        "biggest_loss": -101.5
+      },
+      "score": 0.2346
+    }
+  ]
 }

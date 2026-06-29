@@ -1,16 +1,16 @@
 //+------------------------------------------------------------------+
 //|  CLAUDE QUANT ELITE v2.0  —  XAUUSD M15                        |
 //|  Multi-Timeframe Confluence Trading System                       |
-//|  Strategie : VOLUME_CONF           Auto-Optimiert              |
-//|  Python-Backtest: WR=50.0%  Return=+23.1%  Max DD=5.9%   |
-//|  Profit Factor: 1.91   Trades: 46                                   |
-//|  Kapital: $10000 -> $12305.06 (+$2305.06)               |
+//|  Strategie : REVERSAL              Auto-Optimiert              |
+//|  Python-Backtest: WR=54.5%  Return=+0.5%  Max DD=1.0%   |
+//|  Profit Factor: 1.48   Trades: 11                                   |
+//|  Kapital: $10000 -> $10048.50 (+$48.50)               |
 //+------------------------------------------------------------------+
 //  FEATURES:
 //  - H4 Trend-Filter (EMA50/200) — nur in H4-Trendrichtung handeln
 //  - H1 Momentum-Filter (EMA20/50, RSI, MACD) — Bias-Bestätigung
 //  - M15 Entry mit 10-Faktor Confluence-Score
-//  - Doppeltes TP: TP1=1.5R (50% schließen) + TP2=4.0R (Runner)
+//  - Doppeltes TP: TP1=2.0R (50% schließen) + TP2=4.0R (Runner)
 //  - ATR Trailing Stop nach TP1 getroffen
 //  - Break-Even Management
 //  - Spread-Filter (max. Spread vor Entry)
@@ -39,6 +39,8 @@ input int     InpMaxPositions = 2;     // Max. offene Positionen (TP1+TP2)
 input int     InpMaxSpread    = 35;    // Max. Spread in Punkten
 input int     InpMaxDailyTrades= 2;    // Max. Trades pro Tag (1 Trade = TP1+TP2 Paar)
 input int     InpTradeCooldownH= 3;    // Std. Mindest-Pause zwischen Trades
+input int     InpMaxConsecLoss = 3;    // Pause nach N aufeinanderfolgenden Verlusten (0=aus)
+input double  InpDailyTarget  = 2.0;  // Stop bei +X% Tagesgewinn (0=aus)
 
 //── SESSION & WOCHENTAG ───────────────────────────────────────────
 input string  _Sec1           = "══ SESSION ══";
@@ -46,7 +48,7 @@ input int     InpSessionStart = 7;    // Session Start UTC (London Open)
 input int     InpSessionEnd   = 20;   // Session End UTC (NY Close)
 input bool    InpSkipMonday   = true;   // Montag 7-10 UTC überspringen (schwache Liquidität)
 input bool    InpSkipFriday   = true;   // Freitag ab 17 UTC überspringen (Weekend-Gap Risiko)
-input int     InpConfirmBars  = 2;    // Signal-Bestätigung (1=sofort, 2=2 Kerzen hintereinander)
+input int     InpConfirmBars  = 1;    // Signal-Bestätigung (1=sofort, 2=2 Kerzen hintereinander)
 
 //── MULTI-TIMEFRAME ───────────────────────────────────────────────
 input string  _Sec2           = "══ MULTI-TIMEFRAME ══";
@@ -55,22 +57,22 @@ input bool    InpUseH1Filter  = true;  // H1 Momentum-Filter aktiv
 input int     InpH4EMA        = 50;    // H4 Haupt-EMA Periode
 
 //── ENTRY PARAMETER (Optimizer-Ergebnis) ──────────────────────────
-input string  _Sec3           = "══ ENTRY (VOLUME_CONF) ══";
-input int     InpADXMin       = 20;   // ADX Minimum Trend-Stärke
-input int     InpRSILowBuy    = 40;    // RSI Kauf-Zone Untergrenze
-input int     InpRSIHighBuy   = 62;    // RSI Kauf-Zone Obergrenze
-input int     InpRSILowSell   = 62;    // RSI Verkauf-Zone Untergrenze
-input int     InpRSIHighSell  = 77;    // RSI Verkauf-Zone Obergrenze
-input int     InpMinScore     = 7;  // Min. Confluence Score
+input string  _Sec3           = "══ ENTRY (REVERSAL) ══";
+input int     InpADXMin       = 18;   // ADX Minimum Trend-Stärke
+input int     InpRSILowBuy    = 30;    // RSI Kauf-Zone Untergrenze
+input int     InpRSIHighBuy   = 65;    // RSI Kauf-Zone Obergrenze
+input int     InpRSILowSell   = 40;    // RSI Verkauf-Zone Untergrenze
+input int     InpRSIHighSell  = 55;    // RSI Verkauf-Zone Obergrenze
+input int     InpMinScore     = 13;  // Min. Confluence Score
 input double  InpVolMinRatio  = 0.80;        // Volumen-Min. vs 20-Kerzen Ø
 
 //── TRADE MANAGEMENT ──────────────────────────────────────────────
 input string  _Sec4           = "══ TRADE MANAGEMENT ══";
 input double  InpSLMult       = 2.0;   // Stop Loss (ATR x)
-input double  InpTP1Mult      = 1.5;  // Take Profit 1 (ATR x) — 50% sofort sichern
+input double  InpTP1Mult      = 2.0;  // Take Profit 1 (ATR x) — 50% sofort sichern
 input bool    InpTP2NoLimit   = true;        // TP2 ohne fixes Ziel (nur ATR-Trail) — Elite-Modus
 input double  InpTP2Mult      = 4.0;  // Take Profit 2 fix (wenn InpTP2NoLimit=false)
-input double  InpBEAt         = 0.0;     // Break-Even nach TP1 (ATR x, 0=aus)
+input double  InpBEAt         = 1.0;     // Break-Even nach TP1 (ATR x, 0=aus)
 input bool    InpTrailing     = true;        // ATR Trailing Stop aktiv
 input double  InpTrailMult    = 1.2;         // Trailing Stop Abstand (ATR x)
 input double  InpTrailActivate= 0.5;         // Trail startet ab X*ATR Gewinn (vermeidet Früh-Stop)
@@ -78,16 +80,16 @@ input double  InpTrailActivate= 0.5;         // Trail startet ab X*ATR Gewinn (v
 input int     InpRSICloseSell = 20;          // SELL schließen wenn RSI unter diesen Wert fällt
 input int     InpRSICloseBuy  = 80;          // BUY schließen wenn RSI über diesen Wert steigt
 
-//── CONFLUENCE GEWICHTUNGEN (VOLUME_CONF) ─────────────────────────────
+//── CONFLUENCE GEWICHTUNGEN (REVERSAL) ─────────────────────────────
 input string  _Sec5           = "══ GEWICHTUNGEN ══";
-input int     W_EMA           = 2;   // EMA-Trend Gewicht (M15)
-input int     W_ADX           = 2;   // ADX-Stärke Gewicht
-input int     W_RSI           = 2;   // RSI Zone Gewicht
-input int     W_MACD          = 2;  // MACD Gewicht
-input int     W_BB            = 1;    // Bollinger Bands Gewicht
-input int     W_STOCH         = 1; // Stochastic Gewicht
-input int     W_CCI           = 2;   // CCI Momentum Gewicht
-input int     W_VOL           = 5;   // Volumen Bestätigung Gewicht
+input int     W_EMA           = 1;   // EMA-Trend Gewicht (M15)
+input int     W_ADX           = 1;   // ADX-Stärke Gewicht
+input int     W_RSI           = 5;   // RSI Zone Gewicht
+input int     W_MACD          = 1;  // MACD Gewicht
+input int     W_BB            = 4;    // Bollinger Bands Gewicht
+input int     W_STOCH         = 5; // Stochastic Gewicht
+input int     W_CCI           = 3;   // CCI Momentum Gewicht
+input int     W_VOL           = 2;   // Volumen Bestätigung Gewicht
 
 //══════════════════════════════════════════════════════════════════
 //  GLOBALE VARIABLEN
@@ -112,6 +114,33 @@ datetime g_DayStart        = 0;
 datetime g_LastBar         = 0;
 int      g_DailyTrades     = 0;    // Trades heute geöffnet
 datetime g_LastOpenTime    = 0;    // Zeitpunkt letzter Trade-Eröffnung
+int      g_ConsecLosses    = 0;    // Aufeinanderfolgende Verluste
+int      g_Regime          = 0;    // 0=unbekannt 1=TREND 2=RANGE (choppy)
+
+//══════════════════════════════════════════════════════════════════
+//  ChoppinessIndex — erkennt ob Markt trendet oder seitwärts läuft
+//  CI < 38.2 = starker Trend | CI > 61.8 = choppy/ranging
+//  Wir verwenden 56.0 als pragmatischen Schwellenwert
+//══════════════════════════════════════════════════════════════════
+double ChoppinessIndex(int period = 14)
+  {
+   double hh = iHigh(_Symbol, PERIOD_M15, iHighest(_Symbol, PERIOD_M15, MODE_HIGH, period, 1));
+   double ll = iLow (_Symbol, PERIOD_M15, iLowest (_Symbol, PERIOD_M15, MODE_LOW,  period, 1));
+   double range = hh - ll;
+   if(range < _Point) return 50.0;
+
+   double sumATR = 0;
+   for(int i = 1; i <= period; i++)
+     {
+      double hi = iHigh (_Symbol, PERIOD_M15, i);
+      double lo = iLow  (_Symbol, PERIOD_M15, i);
+      double pc = iClose(_Symbol, PERIOD_M15, i + 1);
+      sumATR += MathMax(hi - lo, MathMax(MathAbs(hi - pc), MathAbs(lo - pc)));
+     }
+
+   if(sumATR <= 0) return 50.0;
+   return 100.0 * MathLog10(sumATR / range) / MathLog10((double)period);
+  }
 
 //══════════════════════════════════════════════════════════════════
 //  OnInit
@@ -155,7 +184,7 @@ int OnInit()
    g_DayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
    g_DayStart        = TimeCurrent();
 
-   Print("CLAUDE QUANT ELITE v2.0 | Strategie: VOLUME_CONF | WR=50.0% | Return=+23.1%");
+   Print("CLAUDE QUANT ELITE v2.0 | Strategie: REVERSAL | WR=54.5% | Return=+0.5%");
    Print("H4-Filter: ", InpUseH4Filter ? "AN" : "AUS",
          " | H1-Filter: ", InpUseH1Filter ? "AN" : "AUS",
          " | Session: ", InpSessionStart, "-", InpSessionEnd, " UTC");
@@ -179,6 +208,27 @@ void OnDeinit(const int reason)
   }
 
 //══════════════════════════════════════════════════════════════════
+//  OnTradeTransaction — Consecutive Loss Tracking
+//══════════════════════════════════════════════════════════════════
+void OnTradeTransaction(const MqlTradeTransaction& trans,
+                        const MqlTradeRequest& request,
+                        const MqlTradeResult& result)
+  {
+   if(trans.type != TRADE_TRANSACTION_DEAL_ADD) return;
+   ulong deal_ticket = trans.deal;
+   if(!HistoryDealSelect(deal_ticket)) return;
+   if(HistoryDealGetInteger(deal_ticket, DEAL_MAGIC) != (long)MAGIC) return;
+   double profit = HistoryDealGetDouble(deal_ticket, DEAL_PROFIT);
+   if(profit == 0) return;
+   if(profit < 0)
+      g_ConsecLosses++;
+   else
+      g_ConsecLosses = 0;
+   PrintFormat("DEAL | Profit=%.2f | Aufein. Verluste=%d / Max=%d",
+               profit, g_ConsecLosses, InpMaxConsecLoss);
+  }
+
+//══════════════════════════════════════════════════════════════════
 //  OnTick — Haupt-Logik
 //══════════════════════════════════════════════════════════════════
 void OnTick()
@@ -192,6 +242,7 @@ void OnTick()
       g_DayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
       g_DayStart        = TimeCurrent();
       g_DailyTrades     = 0;  // Tages-Zähler zurücksetzen
+      g_ConsecLosses    = 0;  // Verlustserie mit neuem Tag zurücksetzen
      }
 
    //── Position-Verwaltung (jeden Tick) ─────────────────────────
@@ -248,6 +299,16 @@ void OnTick()
    atr_avg /= 20.0;
    if(atr > atr_avg * 3.0) return;
 
+   // Konsekutive Verlust-Limit: Pause nach N Verlusten in Folge
+   if(InpMaxConsecLoss > 0 && g_ConsecLosses >= InpMaxConsecLoss) return;
+
+   // Tages-Gewinn-Ziel: kein neuer Trade nach Ziel-Erreichen
+   if(InpDailyTarget > 0.0 && g_DayStartBalance > 0)
+     {
+      double day_pct = (balance - g_DayStartBalance) / g_DayStartBalance * 100.0;
+      if(day_pct >= InpDailyTarget) return;
+     }
+
    //── Signal holen ─────────────────────────────────────────────
    int sig = GetSignal();
    if(sig == 0) return;
@@ -261,6 +322,55 @@ void OnTick()
 //══════════════════════════════════════════════════════════════════
 int GetSignal()
   {
+   //── Market Regime Detection (Choppiness Index) ───────────────
+   double ci = ChoppinessIndex(14);
+   g_Regime = (ci > 56.0) ? 2 : 1;  // 2=RANGE choppy, 1=TREND
+
+   //── RANGE MODE: BB-Bounce + RSI-Extreme ──────────────────────
+   //   Kein H4-Filter nötig — Range-Markt hat keinen Trend
+   if(g_Regime == 2)
+     {
+      double rsiR   = Buf(hM_RSI,   0, 1);
+      double bb_upR = Buf(hM_BB,    1, 1);
+      double bb_loR = Buf(hM_BB,    2, 1);
+      double bb_midR= Buf(hM_BB,    0, 1);
+      double stkR   = Buf(hM_STOCH, 0, 1);
+      double stkDR  = Buf(hM_STOCH, 1, 1);
+      double adxR   = Buf(hM_ADX,   0, 1);
+      double closeR = iClose(_Symbol, PERIOD_M15, 1);
+      double openR  = iOpen (_Symbol, PERIOD_M15, 1);
+
+      if(bb_upR <= 0 || rsiR <= 0) return 0;
+      double pctbR = (bb_upR > bb_loR) ? (closeR - bb_loR) / (bb_upR - bb_loR) : 0.5;
+
+      // Range-Mode braucht schwächeren ADX (kein starker Trend)
+      if(adxR > 35) { g_Regime = 1; goto trend_mode; }  // doch Trend erkannt
+
+      int rbs = 0, rss = 0;
+
+      // RSI-Extreme: Hauptsignal
+      if(rsiR < 30 && closeR < openR) rbs += 5;   // überverkauft → BUY
+      if(rsiR > 70 && closeR > openR) rss += 5;   // überkauft → SELL
+      if(rsiR < 35) rbs += 2;
+      if(rsiR > 65) rss += 2;
+
+      // BB-Bounce: zweites Hauptsignal
+      if(pctbR < 0.15) rbs += 4;   // am unteren Band
+      if(pctbR > 0.85) rss += 4;   // am oberen Band
+
+      // Stochastic-Bestätigung
+      if(stkR < 20 && stkR > stkDR) rbs += 3;
+      if(stkR > 80 && stkR < stkDR) rss += 3;
+
+      // Nur handeln wenn beide Indikatoren übereinstimmen
+      if(rbs >= 7 && rbs > rss + 2) return  1;
+      if(rss >= 7 && rss > rbs + 2) return -1;
+      return 0;
+     }
+
+   trend_mode:
+   //── TREND MODE: originale Logik ──────────────────────────────
+
    //── H4 Trend-Filter ──────────────────────────────────────────
    int h4_bias = 0;
    if(InpUseH4Filter)
@@ -275,7 +385,8 @@ int GetSignal()
          if(h4e50 > h4e200 && h4c > h4e50)  h4_bias =  1;
          if(h4e50 < h4e200 && h4c < h4e50)  h4_bias = -1;
         }
-      if(h4adx < 15) return 0;  // H4 seitwärts → kein Trade
+      if(h4adx < 15) return 0;   // H4 seitwärts → kein Trade
+      if(h4_bias == 0) return 0; // H4 Hard Gate: kein Trade ohne klare Trendrichtung
      }
 
    //── H1 Momentum-Filter ───────────────────────────────────────
@@ -410,6 +521,13 @@ int GetSignal()
    int raw_sig = 0;
    if(bs >= InpMinScore && bs > ss + 2) raw_sig =  1;
    if(ss >= InpMinScore && ss > bs + 2) raw_sig = -1;
+
+   // H4 Hard Gate: Signal MUSS in H4-Trendrichtung gehen
+   if(InpUseH4Filter && raw_sig != 0 && h4_bias != 0)
+     {
+      if(h4_bias ==  1 && raw_sig == -1) return 0;  // H4 bullish → kein SELL
+      if(h4_bias == -1 && raw_sig ==  1) return 0;  // H4 bearish → kein BUY
+     }
 
    // 2-Kerzen-Bestätigung: Signal muss auf vorheriger Kerze ebenfalls aktiv gewesen sein
    if(InpConfirmBars >= 2 && raw_sig != 0)
@@ -639,29 +757,41 @@ void ShowDashboard()
    TimeToStruct(TimeGMT(), gmt);
    bool in_sess = (gmt.hour >= InpSessionStart && gmt.hour < InpSessionEnd);
 
-   string h4_str = (h4e50 > h4e200) ? "BULLISH" : (h4e50 < h4e200 ? "BEARISH" : "NEUTRAL");
-   string sess_str = in_sess ? "AKTIV (London/NY)" : "WARTEN (Asian)";
+   string h4_str    = (h4e50 > h4e200) ? "BULLISH" : (h4e50 < h4e200 ? "BEARISH" : "NEUTRAL");
+   string sess_str  = in_sess ? "AKTIV (London/NY)" : "WARTEN (Asian)";
+   double ci_val    = ChoppinessIndex(14);
+   string reg_str   = (g_Regime == 2)
+                      ? StringFormat("RANGE  CI=%.1f (BB+RSI)", ci_val)
+                      : StringFormat("TREND  CI=%.1f (VWAP)",   ci_val);
+
+   double day_pct = (g_DayStartBalance > 0) ?
+      (balance - g_DayStartBalance) / g_DayStartBalance * 100.0 : 0.0;
+   string risk_str = (InpMaxConsecLoss > 0 && g_ConsecLosses >= InpMaxConsecLoss) ?
+      "PAUSE" : "OK";
 
    Comment(StringFormat(
       "╔══════════════════════════════════════╗\n"
-      "║  CLAUDE QUANT ELITE v2.0             ║\n"
+      "║  CLAUDE QUANT ELITE v3.0 ADAPTIVE    ║\n"
       "║  Strategie : %-22s ║\n"
       "╠══════════════════════════════════════╣\n"
       "║  Balance  : %10.2f USD          ║\n"
       "║  Equity   : %10.2f USD          ║\n"
-      "║  Tag P&L  : %+10.2f USD         ║\n"
+      "║  Tag P&L  : %+10.2f (%+.1f%%)      ║\n"
       "╠══════════════════════════════════════╣\n"
+      "║  REGIME   : %-22s ║\n"
       "║  H4 Trend : %-22s ║\n"
       "║  H1 RSI   : %5.1f                    ║\n"
       "║  M15 RSI  : %5.1f                    ║\n"
       "║  ATR M15  : %8.2f                ║\n"
       "╠══════════════════════════════════════╣\n"
       "║  Session  : %-22s ║\n"
-      "║  Positionen: %2d  | Trades heute: %2d  ║\n"
+      "║  Trades heute: %2d/%2d  Konse.V.: %2d/%2d ║\n"
+      "║  Risiko   : %-22s ║\n"
       "╚══════════════════════════════════════╝",
-      "VOLUME_CONF", balance, equity, day_pl,
-      h4_str, h1rsi, m15rsi, atr,
-      sess_str, CountMyPositions(), g_DailyTrades));
+      "REVERSAL", balance, equity, day_pl, day_pct,
+      reg_str, h4_str, h1rsi, m15rsi, atr,
+      sess_str, g_DailyTrades, InpMaxDailyTrades,
+      g_ConsecLosses, InpMaxConsecLoss, risk_str));
   }
 
 //══════════════════════════════════════════════════════════════════
