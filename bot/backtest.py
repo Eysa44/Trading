@@ -630,8 +630,8 @@ def run_backtest(candles, strat, balance=START_BALANCE):
     else:
         sig_cache = None
 
-    _TRAIL_ACTIVATE = 0.5   # Trail nach X×ATR Profit aktivieren (entspricht EA)
-    _TRAIL_DIST     = 1.2   # Trailing-Abstand in ATR
+    _TRAIL_ACTIVATE = 1.0   # Trail nach X×ATR Profit (nach TP1 = mehr Luft für Runner)
+    _TRAIL_DIST     = 2.0   # Trailing-Abstand in ATR (TP2-Runner laeuft weiter)
 
     for i in range(warmup, len(candles)):
         c = candles[i]

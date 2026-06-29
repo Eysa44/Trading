@@ -67,8 +67,8 @@ SESSION_END   = 17         # UTC-Stunde: NY Close
 # ── ELITE RISK MANAGEMENT ─────────────────────────────────────────────────────
 MAX_CONSEC_LOSSES    = 3     # Pause nach N aufeinanderfolgenden Verlusten
 DAILY_PROFIT_TARGET  = 2.0   # Stop bei +2% Tagesgewinn (0 = deaktiviert)
-TRAIL_ACTIVATE_ATR   = 0.5   # ATR Trail aktiviert nach X×ATR Profit
-TRAIL_DIST_ATR       = 1.2   # Trailing-Abstand in ATR-Einheiten
+TRAIL_ACTIVATE_ATR   = 1.0   # ATR Trail aktiviert nach X×ATR Profit (nach TP1 = mehr Luft)
+TRAIL_DIST_ATR       = 2.0   # Trailing-Abstand in ATR-Einheiten (TP2-Runner laeuft weiter)
 RSI_CLOSE_SELL       = 20    # SELL-Positionen schließen wenn RSI < X (Bounce-Schutz)
 RSI_CLOSE_BUY        = 80    # BUY-Positionen schließen wenn RSI > X (Reversal-Schutz)
 

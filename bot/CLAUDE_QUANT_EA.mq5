@@ -74,8 +74,8 @@ input bool    InpTP2NoLimit   = true;        // TP2 ohne fixes Ziel (nur ATR-Tra
 input double  InpTP2Mult      = 4.0;  // Take Profit 2 fix (wenn InpTP2NoLimit=false)
 input double  InpBEAt         = 1.0;     // Break-Even nach TP1 (ATR x, 0=aus)
 input bool    InpTrailing     = true;        // ATR Trailing Stop aktiv
-input double  InpTrailMult    = 1.2;         // Trailing Stop Abstand (ATR x)
-input double  InpTrailActivate= 0.5;         // Trail startet ab X*ATR Gewinn (vermeidet Früh-Stop)
+input double  InpTrailMult    = 2.0;         // Trailing Stop Abstand (ATR x) — mehr Luft für Runner
+input double  InpTrailActivate= 1.0;         // Trail startet ab X*ATR Gewinn — erst nach solidem Profit
 // RSI-Override: extrem überverkauft/überkauft → Gewinne sofort sichern vor Bounce
 input int     InpRSICloseSell = 20;          // SELL schließen wenn RSI unter diesen Wert fällt
 input int     InpRSICloseBuy  = 80;          // BUY schließen wenn RSI über diesen Wert steigt
