@@ -564,6 +564,7 @@ input double  InpVolMinRatio  = 0.80;        // Volumen-Min. vs 20-Kerzen Ø
 //── TRADE MANAGEMENT ──────────────────────────────────────────────
 input string  _Sec4           = "══ TRADE MANAGEMENT ══";
 input double  InpSLMult       = {sl_mult};   // Stop Loss Basis (ATR x)
+input double  InpSLMinPts     = 15.0;        // Mindest-SL in USD (verhindert Micro-SL bei niedrigem ATR)
 input int     InpSLSwingBars  = 5;           // Swing-Bars für SL-Verankerung (0=nur ATR)
 input double  InpSLHuntBuffer = 0.3;         // Extra ATR-Puffer hinter Swing H/L (Stop-Hunt Schutz)
 input double  InpTP1Mult      = {tp1_mult};  // Take Profit 1 (ATR x) — 50% sofort sichern
@@ -667,7 +668,8 @@ double CalcStopLoss(int dir, double atr)
       swing_sl = hi - bid + atr * InpSLHuntBuffer;
      }}
 
-   return MathMax(base_sl, swing_sl);  // Immer den größeren SL nehmen
+   // Mindest-SL: schützt gegen Micro-Stops bei niedrigem ATR (z.B. 15 USD minimum)
+   return MathMax(MathMax(base_sl, swing_sl), InpSLMinPts);
   }}
 
 //══════════════════════════════════════════════════════════════════
