@@ -12,6 +12,7 @@ Ausfuehren:
 """
 
 import sys
+import os
 import json
 import random
 import math
@@ -32,6 +33,7 @@ from backtest import (
 
 SYMBOL        = "XAUUSD"
 CONTRACT_SIZE = CONTRACT_SIZES.get(SYMBOL, 100)
+EA_FOLDER     = "generated_eas"   # Ordner fuer alle gefilterten Strategien (nichts wird ueberschrieben)
 
 # ── PARAMETER-SUCHRAUM ────────────────────────────────────────────────────────
 SEARCH_SPACE = {
@@ -432,16 +434,54 @@ def main():
             except EOFError:
                 print("  (Tipp: --apply Flag nutzen um automatisch zu uebernehmen)")
 
-        # MQL5 EA immer generieren
-        best_m   = results[0]["metrics"]
-        mql_code = generate_mql5_ea(results[0]["strat"], best_m, balance)
-        ea_file  = "CLAUDE_QUANT_EA.mq5"
-        with open(ea_file, "w", encoding="utf-8") as f:
+        # MQL5 EAs generieren — JEDE gefilterte Strategie wird einzeln gespeichert,
+        # Dateiname = Claude_<Methode>.mq5, bestehende Dateien werden NIE ueberschrieben
+        saved_eas = save_all_strategies(results, balance)
+        best_m = results[0]["metrics"]
+        stype  = results[0]["strat"].get("strategy_type", "BALANCED")
+        print(f"\n  [OK] {len(saved_eas)} MQL5 Expert Advisor(s) gespeichert in '{EA_FOLDER}/':")
+        for p in saved_eas:
+            print(f"       - {p}")
+        print(f"  [OK] Beste Strategie: {stype}  |  WR: {best_m['win_rate']}%  |  Return: {best_m['return_pct']:+.1f}%")
+        print(f"  --> In MT5: Dateien in MQL5\\Experts\\ kopieren, kompilieren, auf XAUUSD M15 ziehen")
+
+
+def _ea_filename(strategy_type):
+    """Wandelt z.B. 'BB_SCALP' in 'Claude_Bb_Scalp.mq5' um."""
+    parts = strategy_type.split("_")
+    nice  = "_".join(p.capitalize() for p in parts)
+    return f"Claude_{nice}.mq5"
+
+
+def save_all_strategies(results, balance, top_n=10):
+    """
+    Speichert jede gefilterte Strategie als eigene MQL5-Datei im EA_FOLDER.
+    - Eine Datei pro Strategie-Typ (beste Variante dieses Typs aus den Top-N)
+    - Bestehende Dateien werden NIEMALS ueberschrieben — bei Namenskollision
+      wird automatisch _2, _3, ... angehaengt, damit alte Ergebnisse erhalten bleiben.
+    """
+    os.makedirs(EA_FOLDER, exist_ok=True)
+    saved = []
+    seen_types = set()
+    for r in results[:top_n]:
+        stype = r["strat"].get("strategy_type", "BALANCED")
+        if stype in seen_types:
+            continue   # pro Lauf nur die beste Variante je Typ speichern
+        seen_types.add(stype)
+
+        mql_code = generate_mql5_ea(r["strat"], r["metrics"], balance)
+        base_name = _ea_filename(stype)
+        path = os.path.join(EA_FOLDER, base_name)
+        counter = 2
+        while os.path.exists(path):
+            name_no_ext = base_name[:-4]   # ohne ".mq5"
+            path = os.path.join(EA_FOLDER, f"{name_no_ext}_{counter}.mq5")
+            counter += 1
+
+        with open(path, "w", encoding="utf-8") as f:
             f.write(mql_code)
-        stype = results[0]["strat"].get("strategy_type", "BALANCED")
-        print(f"\n  [OK] MQL5 Expert Advisor gespeichert: {ea_file}")
-        print(f"  [OK] Strategie: {stype}  |  WR: {best_m['win_rate']}%  |  Return: {best_m['return_pct']:+.1f}%")
-        print(f"  --> In MT5: Datei in MQL5\\Experts\\ kopieren, kompilieren, auf XAUUSD M15 ziehen")
+        saved.append(path)
+    return saved
 
 
 def generate_mql5_ea(best_strat, metrics, balance=10000.0):
