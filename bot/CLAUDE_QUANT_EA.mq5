@@ -68,7 +68,9 @@ input double  InpVolMinRatio  = 0.80;        // Volumen-Min. vs 20-Kerzen Ø
 
 //── TRADE MANAGEMENT ──────────────────────────────────────────────
 input string  _Sec4           = "══ TRADE MANAGEMENT ══";
-input double  InpSLMult       = 2.0;   // Stop Loss (ATR x)
+input double  InpSLMult       = 2.0;   // Stop Loss Basis (ATR x)
+input int     InpSLSwingBars  = 5;     // Swing-Bars für SL-Verankerung (0=nur ATR)
+input double  InpSLHuntBuffer = 0.3;   // Extra ATR-Puffer hinter Swing H/L (Stop-Hunt Schutz)
 input double  InpTP1Mult      = 2.0;  // Take Profit 1 (ATR x) — 50% sofort sichern
 input bool    InpTP2NoLimit   = true;        // TP2 ohne fixes Ziel (nur ATR-Trail) — Elite-Modus
 input double  InpTP2Mult      = 4.0;  // Take Profit 2 fix (wenn InpTP2NoLimit=false)
@@ -140,6 +142,37 @@ double ChoppinessIndex(int period = 14)
 
    if(sumATR <= 0) return 50.0;
    return 100.0 * MathLog10(sumATR / range) / MathLog10((double)period);
+  }
+
+//══════════════════════════════════════════════════════════════════
+//  CalcStopLoss — Swing H/L verankert + ATR-Fallback + Hunt-Puffer
+//  Setzt SL hinter das letzte Swing High (SELL) oder Low (BUY)
+//  + InpSLHuntBuffer×ATR Extra-Puffer gegen Stop-Hunts
+//══════════════════════════════════════════════════════════════════
+double CalcStopLoss(int dir, double atr)
+  {
+   double base_sl = atr * InpSLMult;
+   if(InpSLSwingBars <= 0) return base_sl;
+
+   double swing_sl = 0.0;
+   if(dir == 1)  // BUY → SL unter letztem Swing Low
+     {
+      double lo = iLow(_Symbol, PERIOD_M15, 1);
+      for(int k = 2; k <= InpSLSwingBars; k++)
+         lo = MathMin(lo, iLow(_Symbol, PERIOD_M15, k));
+      double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      swing_sl = ask - lo + atr * InpSLHuntBuffer;
+     }
+   else  // SELL → SL über letztem Swing High
+     {
+      double hi = iHigh(_Symbol, PERIOD_M15, 1);
+      for(int k = 2; k <= InpSLSwingBars; k++)
+         hi = MathMax(hi, iHigh(_Symbol, PERIOD_M15, k));
+      double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      swing_sl = hi - bid + atr * InpSLHuntBuffer;
+     }
+
+   return MathMax(base_sl, swing_sl);  // Immer den größeren SL nehmen
   }
 
 //══════════════════════════════════════════════════════════════════
@@ -557,7 +590,7 @@ int GetSignal()
 //══════════════════════════════════════════════════════════════════
 void OpenTrade(int dir, double atr)
   {
-   double sl_pts  = atr * InpSLMult;
+   double sl_pts  = CalcStopLoss(dir, atr);  // Swing-verankert + ATR-Fallback
    double tp1_pts = atr * InpTP1Mult;
    double tp2_pts = atr * InpTP2Mult;
 
