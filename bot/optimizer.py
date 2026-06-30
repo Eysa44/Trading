@@ -40,9 +40,9 @@ SEARCH_SPACE = {
     "rsi_high_b":     [45, 50, 55, 58, 60, 62, 65],
     "rsi_low_s":      [35, 38, 40, 55, 58, 60, 62, 65],
     "rsi_high_s":     [52, 55, 58, 60, 65, 70, 75, 80],
-    "sl_mult":        [1.0, 1.2, 1.5, 1.8, 2.0, 2.5],
+    "sl_mult":        [1.5, 1.8, 2.0, 2.5, 3.0],   # min 1.5 = kein Stop-Hunt bei normaler Volatilität
     # TP ≥ SL (nur positive RR): verhindert Setups wo TP < SL
-    "tp_mult":        [1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0],
+    "tp_mult":        [2.0, 2.5, 3.0, 3.5, 4.0, 5.0],   # min 2.0 = RR ≥ 1.33 bei SL 1.5
     "need_pattern":   [True, False],
     # Höhere Mindest-Scores → selektivere, qualitativ bessere Signale
     "min_score":      [8, 9, 10, 11, 12, 13, 14],
