@@ -952,13 +952,16 @@ int GetSignal()
       double h4adx  = Buf(hH4_ADX,    0, 1);
       double h4c    = iClose(_Symbol, PERIOD_H4, 1);
 
-      if(h4e50 > 0 && h4e200 > 0 && h4c > 0)
+      if(h4e50 > 0 && h4e200 > 0)
         {{
-         if(h4e50 > h4e200 && h4c > h4e50)  h4_bias =  1;
-         if(h4e50 < h4e200 && h4c < h4e50)  h4_bias = -1;
+         // H4 Bias: EMA-Kreuz reicht — Preis unter EMA50 = Korrektur, nicht blockieren
+         if(h4e50 > h4e200) h4_bias =  1;
+         if(h4e50 < h4e200) h4_bias = -1;
+         // Preis über/unter EMA50 = Extra-Bestätigung (Soft-Faktor)
+         if(h4_bias ==  1 && h4c > h4e50) h4_bias =  2;
+         if(h4_bias == -1 && h4c < h4e50) h4_bias = -2;
         }}
-      if(h4adx < 15) return 0;   // H4 seitwärts → kein Trade
-      if(h4_bias == 0) return 0; // H4 Hard Gate: kein Trade ohne klare Trendrichtung
+      if(h4adx < 12) return 0;  // H4 komplett seitwärts → kein Trade
      }}
 
    //── H1 Momentum-Filter ───────────────────────────────────────
@@ -977,11 +980,11 @@ int GetSignal()
       if(h1rsi < 50 && h1rsi > 20) h1_bias--;
      }}
 
-   // H4 und H1 dürfen nicht in entgegengesetzte Richtungen zeigen
+   // H1 blockiert nur wenn STARK gegen H4 (alle 3 H1-Indikatoren gegen H4)
    if(InpUseH4Filter && InpUseH1Filter)
      {{
-      if(h4_bias ==  1 && h1_bias <= -1) return 0;
-      if(h4_bias == -1 && h1_bias >=  1) return 0;
+      if(h4_bias >=  1 && h1_bias <= -2) return 0;  // H4 bull + H1 stark bärisch
+      if(h4_bias <= -1 && h1_bias >=  2) return 0;  // H4 bear + H1 stark bullisch
      }}
 
    //── M15 Entry Confluence Score ────────────────────────────────
@@ -1082,11 +1085,13 @@ int GetSignal()
       if(h1_bias <= -2) ss += 2;
      }}
 
-   //── 10. H4 Trend Bonus (stärkster Filter) ────────────────────
+   //── 10. H4 Trend Bonus ───────────────────────────────────────
    if(InpUseH4Filter)
      {{
-      if(h4_bias ==  1) bs += 3;
-      if(h4_bias == -1) ss += 3;
+      if(h4_bias ==  1) bs += 2;  // EMA-Kreuz bullisch
+      if(h4_bias ==  2) bs += 4;  // EMA-Kreuz bullisch + Preis über EMA50
+      if(h4_bias == -1) ss += 2;  // EMA-Kreuz bärisch
+      if(h4_bias == -2) ss += 4;  // EMA-Kreuz bärisch + Preis unter EMA50
      }}
 
    //── Entscheidung + 2-Kerzen-Bestätigung ─────────────────────
@@ -1094,11 +1099,11 @@ int GetSignal()
    if(bs >= InpMinScore && bs > ss + 2) raw_sig =  1;
    if(ss >= InpMinScore && ss > bs + 2) raw_sig = -1;
 
-   // H4 Hard Gate: Signal MUSS in H4-Trendrichtung gehen
+   // H4 Richtungs-Gate: Signal muss in H4-Richtung gehen
    if(InpUseH4Filter && raw_sig != 0 && h4_bias != 0)
      {{
-      if(h4_bias ==  1 && raw_sig == -1) return 0;  // H4 bullish → kein SELL
-      if(h4_bias == -1 && raw_sig ==  1) return 0;  // H4 bearish → kein BUY
+      if(h4_bias >=  1 && raw_sig == -1) return 0;  // H4 bullisch → kein SELL
+      if(h4_bias <= -1 && raw_sig ==  1) return 0;  // H4 bärisch → kein BUY
      }}
 
    // 2-Kerzen-Bestätigung: Signal muss auf vorheriger Kerze ebenfalls aktiv gewesen sein
