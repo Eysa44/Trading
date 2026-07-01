@@ -20,6 +20,7 @@ import time
 from datetime import datetime
 
 sys.path.insert(0, ".")
+os.environ["OPTIMIZER_MODE"] = "1"   # verhindert load_best_params() beim Import
 from trading_bot import (
     ema_series, rsi, macd, atr, adx,
     market_structure, detect_candle_patterns,
@@ -34,6 +35,7 @@ from backtest import (
 SYMBOL        = "XAUUSD"
 CONTRACT_SIZE = CONTRACT_SIZES.get(SYMBOL, 100)
 EA_FOLDER     = "generated_eas"   # Ordner fuer alle gefilterten Strategien (nichts wird ueberschrieben)
+_RUN_SEED     = int(time.time())   # Jeder Optimizer-Run erkundet andere Kombinationen
 
 # ── PARAMETER-SUCHRAUM ────────────────────────────────────────────────────────
 SEARCH_SPACE = {
@@ -337,7 +339,7 @@ def main():
     rr_end      = min(n_types * 2, n_random)   # Round-Robin bis hier
     print(f"  Phase 1: {n_random} Versuche  ({rr_end} Round-Robin + {n_random-rr_end} Zufall)...")
     for trial in range(n_random):
-        strat = random_trial(seed=trial * 7 + 13)
+        strat = random_trial(seed=_RUN_SEED + trial * 7)
         if trial < rr_end:
             strat["strategy_type"] = STRATEGY_TYPES[trial % n_types]   # garantierter Typ
         strat["name"] = f"R-{trial+1}"

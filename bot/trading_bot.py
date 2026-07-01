@@ -23,6 +23,7 @@ API ENDPOINTS:
   GET /mode?set=X  -> Wechsle Modus (RANDOM | KELLY | SELF-LEARN)
 """
 
+import os
 import time
 import json
 import math
@@ -147,7 +148,8 @@ def load_best_params():
         print(f"[WARN] best_params.json konnte nicht geladen werden: {e}")
 
 
-load_best_params()
+if not os.environ.get("OPTIMIZER_MODE"):
+    load_best_params()
 
 
 # ── SHARED STATE ──────────────────────────────────────────────────────────────
