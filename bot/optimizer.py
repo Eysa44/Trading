@@ -48,7 +48,9 @@ SEARCH_SPACE = {
     "need_pattern":   [True, False],
     # Höhere Mindest-Scores → selektivere, qualitativ bessere Signale
     "min_score":      [8, 9, 10, 11, 12, 13, 14],
-    "strategy_type":  STRATEGY_TYPES,
+    # ENSEMBLE aus Suchraum entfernt: Backtest-Logik (Mehrheitsvotum) ≠ Live-EA-Logik (Confluence-Score)
+    # → ENSEMBLE würde Optimizer immer gewinnen, aber Live-EA verhält sich nicht anders als REVERSAL etc.
+    "strategy_type":  [s for s in STRATEGY_TYPES if s != "ENSEMBLE"],
     "break_even_at":  [0.0, 2.0, 2.5, 3.0],   # 0=aus (TP1 macht BE auto), >2.0 = nur nach TP1-Level
     # 2-Kerzen-Bestätigung: Signal muss auf 2 aufeinanderfolgenden Kerzen erscheinen
     "confirm_bars":   [1, 2],
