@@ -36,7 +36,7 @@ input double  InpMinSweepUSD     = 3.0;   // Mindest-Sweep in USD über/unter As
 input string  _Sec1              = "══ RISIKO ══";
 input double  InpRiskPct         = 1.0;   // Risiko % pro Trade (vom Kontostand)
 input double  InpMaxDailyDD      = 3.0;   // Max. Tagesverlust % (dann Stop)
-input int     InpMaxSpread       = 35;    // Max. Spread in Punkten
+input int     InpMaxSpread       = 50;    // Max. Spread in Punkten
 input int     InpMaxTradesPerDay = 1;     // Max. Trades pro Tag (1 Setup pro Asian Range)
 
 //── STOP LOSS ─────────────────────────────────────────────────────
@@ -55,8 +55,10 @@ input double  InpTrailActivate   = 1.0;   // Trail startet ab X*ATR Gewinn
 input string  _Sec4              = "══ FILTER ══";
 input bool    InpSkipMonday      = true;  // Montag vor 10 UTC überspringen (dünne Liquidität)
 input bool    InpSkipFriday      = true;  // Freitag ab 15 UTC überspringen (Weekend-Risiko)
-input double  InpMinRangeUSD     = 10.0;  // Mindest-Asian-Range in USD (zu enge Range = kein Setup)
-input double  InpMaxRangeUSD     = 80.0;  // Max-Asian-Range in USD (zu volatile Nacht = skip)
+input double  InpMinRangeUSD     = 8.0;   // Mindest-Asian-Range in USD
+input double  InpMaxRangeUSD     = 80.0;  // Max-Asian-Range in USD
+input int     InpSweepLookback   = 5;     // Max. Kerzen nach Sweep bis Close-Back erwartet wird
+input int     InpGMTOffset       = 0;     // Broker UTC-Offset (0=TimeGMT auto, 2=UTC+2, 3=UTC+3)
 
 //══════════════════════════════════════════════════════════════════
 //  GLOBALE VARIABLEN
@@ -72,6 +74,9 @@ double   g_AsianLow       = 1e9;
 bool     g_AsianLocked    = false;
 bool     g_SellTraded     = false;   // Verhindert Doppel-Sell nach mehreren Sweeps
 bool     g_BuyTraded      = false;
+bool     g_HighSwept      = false;   // Sweep über Asian High wurde detektiert
+bool     g_LowSwept       = false;   // Sweep unter Asian Low wurde detektiert
+int      g_SweepBarCount  = 0;       // Kerzen seit letztem Sweep (Timeout-Zähler)
 
 datetime g_DayStart       = 0;
 double   g_DayStartBal    = 0;
@@ -136,8 +141,11 @@ void OnTick()
       ResetDay();
      }
 
+   // UTC-Zeit: InpGMTOffset=0 → TimeGMT() auto, sonst manueller Offset
+   datetime utc_time = (InpGMTOffset == 0) ? TimeGMT()
+                                            : TimeCurrent() - (datetime)(InpGMTOffset * 3600);
    MqlDateTime gmt;
-   TimeToStruct(TimeGMT(), gmt);
+   TimeToStruct(utc_time, gmt);
    int h = gmt.hour;
 
    //── Wochentag-Filter ─────────────────────────────────────────
@@ -146,15 +154,17 @@ void OnTick()
    if(InpSkipMonday && loc.day_of_week == 1 && h < 10) return;
    if(InpSkipFriday && loc.day_of_week == 5 && h >= 15) return;
 
+   double bar_high  = iHigh (_Symbol, PERIOD_M5, 1);
+   double bar_low   = iLow  (_Symbol, PERIOD_M5, 1);
+   double bar_close = iClose(_Symbol, PERIOD_M5, 1);
+
    //── Phase 1: Asian Range aufbauen ────────────────────────────
    if(h >= InpAsianStartH && h < InpAsianEndH)
      {
       if(!g_AsianLocked)
         {
-         double hi = iHigh(_Symbol, PERIOD_M5, 1);
-         double lo = iLow (_Symbol, PERIOD_M5, 1);
-         if(hi > g_AsianHigh) g_AsianHigh = hi;
-         if(lo < g_AsianLow)  g_AsianLow  = lo;
+         if(bar_high > g_AsianHigh) g_AsianHigh = bar_high;
+         if(bar_low  < g_AsianLow)  g_AsianLow  = bar_low;
         }
       return;   // Während Asian Session nicht handeln
      }
@@ -164,14 +174,12 @@ void OnTick()
      {
       g_AsianLocked = true;
       double range = g_AsianHigh - g_AsianLow;
-      PrintFormat("Asian Range eingefroren: H=%.2f  L=%.2f  Range=%.2f USD",
+      PrintFormat("[AsianGlitch] Range eingefroren: H=%.2f  L=%.2f  %.2f USD",
                   g_AsianHigh, g_AsianLow, range);
 
-      // Range-Filter: zu eng oder zu breit → kein Setup heute
       if(range < InpMinRangeUSD || range > InpMaxRangeUSD)
         {
-         PrintFormat("Range %.2f außerhalb Limit [%.1f-%.1f] → Skip heute",
-                     range, InpMinRangeUSD, InpMaxRangeUSD);
+         PrintFormat("[AsianGlitch] Range %.2f außerhalb [%.1f-%.1f] → Skip", range, InpMinRangeUSD, InpMaxRangeUSD);
          g_TradesToday = InpMaxTradesPerDay;  // blockieren
         }
       return;
@@ -198,30 +206,59 @@ void OnTick()
    double atr = Buf(hM_ATR, 0, 1);
    if(atr <= 0) return;
 
-   //── Signal: Liquidity Sweep ───────────────────────────────────
-   double bar_high  = iHigh (_Symbol, PERIOD_M5, 1);
-   double bar_low   = iLow  (_Symbol, PERIOD_M5, 1);
-   double bar_close = iClose(_Symbol, PERIOD_M5, 1);
+   //── Sweep-Flags aktualisieren ─────────────────────────────────
+   // Sweep über Asian High → Flag setzen (unabhängig von Close)
+   if(!g_HighSwept && bar_high >= g_AsianHigh + InpMinSweepUSD)
+     {
+      g_HighSwept     = true;
+      g_SweepBarCount = 0;
+      PrintFormat("[AsianGlitch] HIGH SWEEP: bar_high=%.2f > H+%.1f=%.2f",
+                  bar_high, InpMinSweepUSD, g_AsianHigh + InpMinSweepUSD);
+     }
+   if(!g_LowSwept && bar_low <= g_AsianLow - InpMinSweepUSD)
+     {
+      g_LowSwept      = true;
+      g_SweepBarCount = 0;
+      PrintFormat("[AsianGlitch] LOW SWEEP: bar_low=%.2f < L-%.1f=%.2f",
+                  bar_low, InpMinSweepUSD, g_AsianLow - InpMinSweepUSD);
+     }
 
-   // SELL: Preis sweept ÜBER Asian High → schliesst zurück darunter
-   bool sell_sig = !g_SellTraded
-                && (bar_high  >= g_AsianHigh + InpMinSweepUSD)
-                && (bar_close <  g_AsianHigh);
+   // Zähler hochzählen; Sweep verfällt nach InpSweepLookback Kerzen ohne Close-Back
+   if(g_HighSwept || g_LowSwept) g_SweepBarCount++;
+   if(g_SweepBarCount > InpSweepLookback)
+     {
+      if(g_HighSwept) PrintFormat("[AsianGlitch] HIGH SWEEP abgelaufen (kein Close-Back in %d Kerzen)", InpSweepLookback);
+      if(g_LowSwept)  PrintFormat("[AsianGlitch] LOW  SWEEP abgelaufen (kein Close-Back in %d Kerzen)", InpSweepLookback);
+      g_HighSwept = false;
+      g_LowSwept  = false;
+      g_SweepBarCount = 0;
+     }
 
-   // BUY: Preis sweept UNTER Asian Low → schliesst zurück darüber
-   bool buy_sig  = !g_BuyTraded
-                && (bar_low   <= g_AsianLow - InpMinSweepUSD)
-                && (bar_close >  g_AsianLow);
+   //── Signal: Close-Back nach Sweep → ENTRY ────────────────────
+   // SELL: Sweep über Asian High ist aktiv UND bar[1] schliesst zurück darunter
+   bool sell_sig = !g_SellTraded && g_HighSwept && (bar_close < g_AsianHigh);
+
+   // BUY: Sweep unter Asian Low ist aktiv UND bar[1] schliesst zurück darüber
+   bool buy_sig  = !g_BuyTraded  && g_LowSwept  && (bar_close > g_AsianLow);
 
    if(sell_sig && !buy_sig)
      {
-      OpenTrade(-1, atr, bar_high);
+      double sweep_wick = bar_high;  // letzte bekannte Sweep-Kerze
+      // Suche exaktes Sweep-Hoch in Lookback-Fenster
+      for(int k = 1; k <= MathMin(InpSweepLookback, 10); k++)
+         sweep_wick = MathMax(sweep_wick, iHigh(_Symbol, PERIOD_M5, k));
+      OpenTrade(-1, atr, sweep_wick);
       g_SellTraded = true;
+      g_HighSwept  = false;
      }
    else if(buy_sig && !sell_sig)
      {
-      OpenTrade(1, atr, bar_low);
+      double sweep_wick = bar_low;
+      for(int k = 1; k <= MathMin(InpSweepLookback, 10); k++)
+         sweep_wick = MathMin(sweep_wick, iLow(_Symbol, PERIOD_M5, k));
+      OpenTrade(1, atr, sweep_wick);
       g_BuyTraded = true;
+      g_LowSwept  = false;
      }
   }
 
@@ -436,11 +473,14 @@ void ShowDashboard()
 
 void ResetDay()
   {
-   g_AsianHigh   = 0;
-   g_AsianLow    = 1e9;
-   g_AsianLocked = false;
-   g_SellTraded  = false;
-   g_BuyTraded   = false;
+   g_AsianHigh     = 0;
+   g_AsianLow      = 1e9;
+   g_AsianLocked   = false;
+   g_SellTraded    = false;
+   g_BuyTraded     = false;
+   g_HighSwept     = false;
+   g_LowSwept      = false;
+   g_SweepBarCount = 0;
   }
 
 int CountMyPositions()

@@ -90,11 +90,19 @@ double        g_NYLow_prev  = 1e9;
 bool          g_NYLevelsOK  = false;
 
 // Session-State
-bool          g_SellTraded  = false;
-bool          g_BuyTraded   = false;
-int           g_DayTrades   = 0;
-datetime      g_LastDay     = 0;
-double        g_DayStartBal = 0.0;
+bool          g_SellTraded    = false;
+bool          g_BuyTraded     = false;
+int           g_DayTrades     = 0;
+datetime      g_LastDay       = 0;
+double        g_DayStartBal   = 0.0;
+
+// Sweep-Flags (getrennt von Entry — Sweep kann Kerzen früher passieren)
+bool          g_HighSwept     = false;
+bool          g_LowSwept      = false;
+double        g_SweepHigh     = 0.0;   // Exaktes Sweep-Hoch für SL-Berechnung
+double        g_SweepLow      = 1e9;   // Exaktes Sweep-Tief für SL-Berechnung
+int           g_SweepBars     = 0;     // Kerzen seit Sweep (Timeout)
+input int     InpSweepTimeout = 5;     // Max. Kerzen nach Sweep bis Entry (sonst reset)
 
 // Trailing
 ulong         g_TP2_Tickets[];
@@ -277,7 +285,7 @@ void BuildNYLevels()
   }
 
 //══════════════════════════════════════════════════════════════════
-//  ASIAN SWEEP SIGNAL
+//  ASIAN SWEEP SIGNAL (Multi-Bar: Sweep-Flag + Close-Back getrennt)
 //══════════════════════════════════════════════════════════════════
 void CheckAndTradeAsianSweep(double atr, int hour)
   {
@@ -290,33 +298,56 @@ void CheckAndTradeAsianSweep(double atr, int hour)
    double bar_low   = iLow(_Symbol, PERIOD_M15, 1);
    double bar_close = iClose(_Symbol, PERIOD_M15, 1);
 
-   // SELL: Sweep über Asian High, schließt zurück inside
-   if(!g_SellTraded
-      && bar_high  >= g_AsianHigh + InpMinSweepUSD
-      && bar_close <  g_AsianHigh)
+   // Sweep-Flags aktualisieren
+   if(!g_HighSwept && bar_high >= g_AsianHigh + InpMinSweepUSD)
      {
-      double sl_dist = MathMax(bar_high - iClose(_Symbol, PERIOD_M15, 0) + atr * InpSLBuffer,
-                               InpSLMinUSD);
-      double tp1 = InpTP1UseOpposite ? g_AsianLow : (iAsk(_Symbol) - atr * InpTP1Mult);
-      OpenSell(sl_dist, tp1, "AG-Asian-SELL");
-      g_SellTraded = true;
+      g_HighSwept = true;
+      g_SweepHigh = bar_high;
+      g_SweepBars = 0;
+      PrintFormat("[AsiaNY Elite v2] SWEEP HOCH: %.2f > H+%.1f=%.2f", bar_high, InpMinSweepUSD, g_AsianHigh + InpMinSweepUSD);
+     }
+   if(!g_LowSwept && bar_low <= g_AsianLow - InpMinSweepUSD)
+     {
+      g_LowSwept = true;
+      g_SweepLow = bar_low;
+      g_SweepBars = 0;
+      PrintFormat("[AsiaNY Elite v2] SWEEP TIEF: %.2f < L-%.1f=%.2f", bar_low, InpMinSweepUSD, g_AsianLow - InpMinSweepUSD);
      }
 
-   // BUY: Sweep unter Asian Low, schließt zurück inside
-   if(!g_BuyTraded
-      && bar_low   <= g_AsianLow - InpMinSweepUSD
-      && bar_close >  g_AsianLow)
+   // Sweep-Timeout: verfällt nach InpSweepTimeout Kerzen
+   if(g_HighSwept || g_LowSwept) g_SweepBars++;
+   if(g_SweepBars > InpSweepTimeout)
      {
-      double sl_dist = MathMax(iClose(_Symbol, PERIOD_M15, 0) - bar_low + atr * InpSLBuffer,
+      g_HighSwept = false; g_LowSwept = false;
+      g_SweepHigh = 0.0;   g_SweepLow = 1e9;
+      g_SweepBars = 0;
+     }
+
+   // SELL: Sweep-Flag aktiv UND aktuelle Kerze schließt zurück unter Asian High
+   if(!g_SellTraded && g_HighSwept && bar_close < g_AsianHigh)
+     {
+      double sl_dist = MathMax(g_SweepHigh - SymbolInfoDouble(_Symbol, SYMBOL_BID) + atr * InpSLBuffer,
                                InpSLMinUSD);
-      double tp1 = InpTP1UseOpposite ? g_AsianHigh : (iBid(_Symbol) + atr * InpTP1Mult);
+      double tp1 = InpTP1UseOpposite ? g_AsianLow : (SymbolInfoDouble(_Symbol, SYMBOL_ASK) - atr * InpTP1Mult);
+      OpenSell(sl_dist, tp1, "AG-Asian-SELL");
+      g_SellTraded = true;
+      g_HighSwept  = false;
+     }
+
+   // BUY: Sweep-Flag aktiv UND aktuelle Kerze schließt zurück über Asian Low
+   if(!g_BuyTraded && g_LowSwept && bar_close > g_AsianLow)
+     {
+      double sl_dist = MathMax(SymbolInfoDouble(_Symbol, SYMBOL_ASK) - g_SweepLow + atr * InpSLBuffer,
+                               InpSLMinUSD);
+      double tp1 = InpTP1UseOpposite ? g_AsianHigh : (SymbolInfoDouble(_Symbol, SYMBOL_BID) + atr * InpTP1Mult);
       OpenBuy(sl_dist, tp1, "AG-Asian-BUY");
       g_BuyTraded = true;
+      g_LowSwept  = false;
      }
   }
 
 //══════════════════════════════════════════════════════════════════
-//  NY LEVEL SWEEP SIGNAL
+//  NY LEVEL SWEEP SIGNAL (nutzt dieselben g_HighSwept/g_LowSwept Flags)
 //══════════════════════════════════════════════════════════════════
 void CheckAndTradeNYSweep(double atr)
   {
@@ -326,28 +357,44 @@ void CheckAndTradeNYSweep(double atr)
    double bar_low   = iLow(_Symbol, PERIOD_M15, 1);
    double bar_close = iClose(_Symbol, PERIOD_M15, 1);
 
-   // SELL: Sweep über NY High (Vortag)
-   if(!g_SellTraded
-      && bar_high  >= g_NYHigh_prev + InpMinSweepUSD
-      && bar_close <  g_NYHigh_prev)
+   // Sweep-Flags für NY Levels setzen (falls noch nicht durch Asian Sweep gesetzt)
+   if(!g_HighSwept && bar_high >= g_NYHigh_prev + InpMinSweepUSD)
      {
-      double sl_dist = MathMax(bar_high - iClose(_Symbol, PERIOD_M15, 0) + atr * InpSLBuffer,
-                               InpSLMinUSD);
-      double tp1 = InpTP1UseOpposite ? g_NYLow_prev : (iAsk(_Symbol) - atr * InpTP1Mult);
-      OpenSell(sl_dist, tp1, "AG-NY-SELL");
-      g_SellTraded = true;
+      g_HighSwept = true;
+      g_SweepHigh = bar_high;
+      g_SweepBars = 0;
+      PrintFormat("[AsiaNY Elite v2] NY SWEEP HOCH: %.2f > NY-H+%.1f=%.2f",
+                  bar_high, InpMinSweepUSD, g_NYHigh_prev + InpMinSweepUSD);
+     }
+   if(!g_LowSwept && bar_low <= g_NYLow_prev - InpMinSweepUSD)
+     {
+      g_LowSwept = true;
+      g_SweepLow = bar_low;
+      g_SweepBars = 0;
+      PrintFormat("[AsiaNY Elite v2] NY SWEEP TIEF: %.2f < NY-L-%.1f=%.2f",
+                  bar_low, InpMinSweepUSD, g_NYLow_prev - InpMinSweepUSD);
      }
 
-   // BUY: Sweep unter NY Low (Vortag)
-   if(!g_BuyTraded
-      && bar_low   <= g_NYLow_prev - InpMinSweepUSD
-      && bar_close >  g_NYLow_prev)
+   // SELL nach NY High Sweep
+   if(!g_SellTraded && g_HighSwept && bar_close < g_NYHigh_prev)
      {
-      double sl_dist = MathMax(iClose(_Symbol, PERIOD_M15, 0) - bar_low + atr * InpSLBuffer,
+      double sl_dist = MathMax(g_SweepHigh - SymbolInfoDouble(_Symbol, SYMBOL_BID) + atr * InpSLBuffer,
                                InpSLMinUSD);
-      double tp1 = InpTP1UseOpposite ? g_NYHigh_prev : (iBid(_Symbol) + atr * InpTP1Mult);
+      double tp1 = InpTP1UseOpposite ? g_NYLow_prev : (SymbolInfoDouble(_Symbol, SYMBOL_ASK) - atr * InpTP1Mult);
+      OpenSell(sl_dist, tp1, "AG-NY-SELL");
+      g_SellTraded = true;
+      g_HighSwept  = false;
+     }
+
+   // BUY nach NY Low Sweep
+   if(!g_BuyTraded && g_LowSwept && bar_close > g_NYLow_prev)
+     {
+      double sl_dist = MathMax(SymbolInfoDouble(_Symbol, SYMBOL_ASK) - g_SweepLow + atr * InpSLBuffer,
+                               InpSLMinUSD);
+      double tp1 = InpTP1UseOpposite ? g_NYHigh_prev : (SymbolInfoDouble(_Symbol, SYMBOL_BID) + atr * InpTP1Mult);
       OpenBuy(sl_dist, tp1, "AG-NY-BUY");
       g_BuyTraded = true;
+      g_LowSwept  = false;
      }
   }
 
@@ -482,6 +529,11 @@ void ResetDay(datetime today_start)
    g_BuyTraded   = false;
    g_DayTrades   = 0;
    g_DayStartBal = AccountInfoDouble(ACCOUNT_BALANCE);
+   g_HighSwept   = false;
+   g_LowSwept    = false;
+   g_SweepHigh   = 0.0;
+   g_SweepLow    = 1e9;
+   g_SweepBars   = 0;
    ArrayResize(g_TP2_Tickets, 0);
   }
 
