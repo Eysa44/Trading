@@ -144,16 +144,18 @@ def score(m):
 # ── WALK-FORWARD TEST ────────────────────────────────────────────────────────
 
 def walk_forward_score(candles, strat, split=0.65, balance=START_BALANCE):
-    """Einfacher 65%/35% Walk-Forward (Fallback bei wenig Daten)."""
+    """
+    Out-of-Sample-Test: bewertet nur die letzten 35% der Daten.
+    Die Parameter stammen aus dem Zufalls-Suchraum (nicht aus den Train-Daten),
+    daher ist KEIN Train-Backtest nötig — nur der Test-Abschnitt zählt.
+    """
     split_idx = int(len(candles) * split)
-    train     = candles[:split_idx]
     test      = candles[split_idx:]
 
     if len(test) < 300:
         trades, eq, final = run_backtest(candles, strat, balance=balance)
         return calc_metrics(trades, eq, final, initial_balance=balance)
 
-    _, _, _ = run_backtest(train, strat, balance=balance)
     trades_test, eq_test, final_test = run_backtest(test, strat, balance=balance)
     return calc_metrics(trades_test, eq_test, final_test, initial_balance=balance)
 
@@ -179,12 +181,11 @@ def multi_walk_forward_score(candles, strat, balance=START_BALANCE):
     window_metrics = []
     n_profitable   = 0
     for win in windows:
-        split    = int(len(win) * 0.65)
-        train, test = win[:split], win[split:]
+        split = int(len(win) * 0.65)
+        test  = win[split:]
         if len(test) < 100:
             window_metrics.append({"error": "Zu wenige Kerzen"})
             continue
-        run_backtest(train, strat, balance=balance)   # warm-up / train
         trades, eq, final = run_backtest(test, strat, balance=balance)
         m = calc_metrics(trades, eq, final, initial_balance=balance)
         window_metrics.append(m)
@@ -440,6 +441,9 @@ def apply_best_params(best_strat):
         "min_score":     best_strat.get("min_score", 8),
         "strategy_type": best_strat.get("strategy_type", "BALANCED"),
         "break_even_at": best_strat.get("break_even_at", 1.0),
+        "confirm_bars":  best_strat.get("confirm_bars", 1),
+        "day_filter":    best_strat.get("day_filter", False),
+        "session_filter":best_strat.get("session_filter", False),
         "source":        "optimizer",
     }
     with open("best_params.json", "w") as f:
@@ -719,6 +723,7 @@ def generate_mql5_ea(best_strat, metrics, balance=10000.0):
     tp2_mult = round(tp_raw, 1)              # runner TP: optimizer's full target
     confirm  = best_strat.get("confirm_bars", 1)   # 2-Kerzen-Bestätigung
     day_filt = best_strat.get("day_filter", True)  # Wochentag-Filter
+    sess_filt= best_strat.get("session_filter", True)  # London/NY-Session-Filter
     be_at    = round(best_strat.get("break_even_at", 1.0), 1)
     adx_min  = best_strat.get("adx_min", 20)
     rsi_lb   = best_strat.get("rsi_low_b", 40)
@@ -773,6 +778,7 @@ input double  InpDailyTarget  = 2.0;  // Stop bei +X% Tagesgewinn (0=aus)
 
 //── SESSION & WOCHENTAG ───────────────────────────────────────────
 input string  _Sec1           = "══ SESSION ══";
+input bool    InpUseSession   = {"true" if sess_filt else "false"};   // Session-Filter aktiv (Optimizer-Ergebnis!)
 input int     InpSessionStart = 7;    // Session Start UTC (London Open)
 input int     InpSessionEnd   = 20;   // Session End UTC (NY Close)
 input bool    InpSkipMonday   = {"true" if day_filt else "false"};   // Montag 7-10 UTC überspringen (schwache Liquidität)
@@ -1020,10 +1026,10 @@ void OnTick()
 
    //── Vorflug-Checks ───────────────────────────────────────────
 
-   // Session-Filter: London/NY
+   // Session-Filter: London/NY (nur wenn der Optimizer ihn als profitabel getestet hat)
    MqlDateTime gmt;
    TimeToStruct(TimeGMT(), gmt);
-   if(gmt.hour < InpSessionStart || gmt.hour >= InpSessionEnd) return;
+   if(InpUseSession && (gmt.hour < InpSessionStart || gmt.hour >= InpSessionEnd)) return;
 
    // Wochentag-Filter: Montag-Open (schwache Liquidität) + Freitag-Close (Weekend-Gap)
    MqlDateTime loc;
@@ -1529,7 +1535,7 @@ void ShowDashboard()
    bool in_sess = (gmt.hour >= InpSessionStart && gmt.hour < InpSessionEnd);
 
    string h4_str    = (h4e50 > h4e200) ? "BULLISH" : (h4e50 < h4e200 ? "BEARISH" : "NEUTRAL");
-   string sess_str  = in_sess ? "AKTIV (London/NY)" : "WARTEN (Asian)";
+   string sess_str  = !InpUseSession ? "24H-MODUS" : (in_sess ? "AKTIV (London/NY)" : "WARTEN (Asian)");
    double ci_val    = ChoppinessIndex(14);
    string reg_str   = (g_Regime == 2)
                       ? StringFormat("RANGE  CI=%.1f (BB+RSI)", ci_val)
