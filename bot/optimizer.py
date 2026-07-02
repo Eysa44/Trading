@@ -1,14 +1,14 @@
 """
-CLAUDE + QUANT  —  Auto-Optimizer v1.0
-=======================================
+CLAUDE + QUANT  —  Auto-Optimizer v2.0 (Elite)
+================================================
 Testet automatisch viele Parameter-Kombinationen auf echten XAUUSD-Daten,
-bewertet jede Strategie und schreibt die besten Parameter direkt in den Bot.
+bewertet jede Strategie mit Elite-Metriken (Calmar Ratio, 3×Walk-Forward)
+und schreibt die besten Parameter direkt in den Bot.
 
 Ausfuehren:
-  python optimizer.py          # Schnell: 100 Kombinationen, synthetische Daten
-  python optimizer.py --mt5    # Echte MT5-Daten (empfohlen, MT5 muss offen sein)
-  python optimizer.py --mt5 --trials 300 --candles 8000
-  python optimizer.py --apply  # Beste Parameter direkt in Bot uebernehmen
+  python optimizer.py --mt5                                    # Schnell (300 Trials)
+  python optimizer.py --mt5 --trials 500 --candles 20000      # EMPFOHLEN: 200 Tage Daten
+  python optimizer.py --mt5 --trials 500 --candles 20000 --apply  # + automatisch anwenden
 """
 
 import sys
@@ -58,23 +58,31 @@ SEARCH_SPACE = {
     "confirm_bars":   [1, 2],
     # Wochentag-Filter: Mon-Open und Freitag-Close überspringen
     "day_filter":     [True, False],
+    # Session-Filter: Nur London+NY (7-20 UTC) — tote Stunden meiden
+    "session_filter": [True, False],
 }
 
-# ── QUALITÄTS-FILTER ──────────────────────────────────────────────────────────
-MIN_TRADES    = 10     # Mindestens 10 Trades für aussagekräftiges Ergebnis
-MAX_DRAWDOWN  = 15.0   # Maximal 15% Drawdown (strenger)
-MIN_WR        = 47.0   # Wir erreichen 50%+ — nur noch echte Top-Kandidaten
+# ── QUALITÄTS-FILTER (Elite-Standards) ───────────────────────────────────────
+MIN_TRADES    = 15     # 15+ Trades = statistisch aussagekräftig (war 10)
+MAX_DRAWDOWN  = 12.0   # Max 12% Drawdown — kein Kapitalverlust > 12% (war 15%)
+MIN_WR        = 45.0   # Calmar Ratio übernimmt Hauptfilter (war 47%)
 
 
-# ── SCORING ───────────────────────────────────────────────────────────────────
+# ── SCORING (Elite: Calmar Ratio + Konsistenz) ───────────────────────────────
 
 def score(m):
     """
-    High-Win-Rate Score: Ziel 70-80% WR.
-    - Win Rate stark gewichtet (0.55) — Hauptziel
-    - Profit Factor für Trade-Qualität (0.20)
-    - Return und Sharpe sekundär (je 0.10)
-    - Drawdown-Strafe bleibt
+    Elite Scoring: Calmar Ratio + Win Rate + Profit Factor.
+    Calmar Ratio = Return / Max Drawdown — die wichtigste Profi-Metrik.
+    Eine Strategie mit 20% Return und 5% DD ist VIEL besser als 20% Return / 15% DD.
+
+    Gewichtung:
+    - Calmar Ratio (Return/DD):  30% — Haupt-Elite-Metrik
+    - Win Rate:                  30%
+    - Profit Factor:             20%
+    - Sharpe Ratio:              15%
+    - Trade-Qualität:             5%
+    + Konsistenz-Bonus +12% wenn alle 3 Walk-Forward-Fenster profitabel
     """
     if "error" in m:
         return -999
@@ -84,41 +92,51 @@ def score(m):
         return -999
     if m["win_rate"] < MIN_WR:
         return -999
-    if m["profit_factor"] <= 1.0:
+    if m["profit_factor"] <= 1.2:    # Strenger als vorher (war 1.0)
         return -999
 
-    wr       = m["win_rate"] / 100            # 0.0 – 1.0
+    wr       = m["win_rate"] / 100
     sharpe   = max(m["sharpe"], 0)
-    ret      = max(m["return_pct"], 0)
+    ret_norm = max(m["return_pct"], 0) / 100   # normalisiert
     dd_pen   = 1 - (m["max_drawdown"] / 100)
     trade_q  = math.log(m["total_trades"] + 1) / 6
     pf_bonus = min((m["profit_factor"] - 1.0) / 2.0, 1.0)
 
-    # Win Rate kubisch: 50%=0.125, 55%=0.166, 60%=0.216, 65%=0.274, 70%=0.343
-    # Extra-Bonus über 50% WR (Ziel ist 55%+)
+    # Calmar Ratio: Return% / Drawdown% — Elite-Metrik für risikoadjustierten Return
+    # 2.0 = sehr gut (z.B. 20% Return bei 10% DD), normalisiert auf 0-1
+    calmar_raw  = m["return_pct"] / m["max_drawdown"] if m["max_drawdown"] > 0 else m["return_pct"] * 5
+    calmar_norm = min(calmar_raw / 2.0, 1.0)
+
+    # Win Rate kubisch + Stufenbonus
     wr_bonus = wr ** 3
     if wr >= 0.55:
-        wr_bonus *= 1.25   # +25% Bonus für 55%+ WR
+        wr_bonus *= 1.25
     if wr >= 0.60:
-        wr_bonus *= 1.20   # Nochmal +20% für 60%+ WR
+        wr_bonus *= 1.20
 
-    # Profit Factor > 2.0 ist Qualitäts-Zeichen (mehr als doppelte Gewinne vs Verluste)
+    # Profit Factor > 2.0 = Qualitäts-Zeichen
     if m["profit_factor"] >= 2.0:
         pf_bonus = min(pf_bonus * 1.3, 1.0)
 
-    return round(
-        (wr_bonus * 0.55 + pf_bonus * 0.20 + ret * 0.10 + sharpe * 0.10 + trade_q * 0.05)
-        * dd_pen, 4
-    )
+    base = (
+        calmar_norm * 0.30 +
+        wr_bonus    * 0.30 +
+        pf_bonus    * 0.20 +
+        sharpe      * 0.15 +
+        trade_q     * 0.05
+    ) * dd_pen
+
+    # +12% Bonus wenn alle 3 Walk-Forward-Fenster profitabel waren (Konsistenz)
+    if m.get("_all_consistent"):
+        base *= 1.12
+
+    return round(base, 4)
 
 
 # ── WALK-FORWARD TEST ────────────────────────────────────────────────────────
 
 def walk_forward_score(candles, strat, split=0.65, balance=START_BALANCE):
-    """
-    Testet auf ersten 65% (In-Sample), validiert auf letzten 35% (Out-of-Sample).
-    Verhindert Overfitting.
-    """
+    """Einfacher 65%/35% Walk-Forward (Fallback bei wenig Daten)."""
     split_idx = int(len(candles) * split)
     train     = candles[:split_idx]
     test      = candles[split_idx:]
@@ -129,8 +147,59 @@ def walk_forward_score(candles, strat, split=0.65, balance=START_BALANCE):
 
     _, _, _ = run_backtest(train, strat, balance=balance)
     trades_test, eq_test, final_test = run_backtest(test, strat, balance=balance)
-    m = calc_metrics(trades_test, eq_test, final_test, initial_balance=balance)
-    return m
+    return calc_metrics(trades_test, eq_test, final_test, initial_balance=balance)
+
+
+def multi_walk_forward_score(candles, strat, balance=START_BALANCE):
+    """
+    3-Fenster Walk-Forward (Elite-Methode).
+    Teilt Daten in 3 gleichgroße Zeiträume und testet jeden einzeln.
+    Strategie muss in mindestens 2 von 3 Fenstern profitabel sein.
+
+    Warum besser als 1-Fenster:
+    - Verhindert Overfitting auf einen einzelnen Marktabschnitt
+    - Filtert Strategien die nur in bull/bear/chop-Märkten funktionieren
+    - Gibt Konsistenz-Bonus (+12% Score) wenn alle 3 Fenster profitabel
+    """
+    n = len(candles)
+    if n < 1200:
+        return walk_forward_score(candles, strat, balance=balance)
+
+    w = n // 3
+    windows = [candles[:w], candles[w:2*w], candles[2*w:]]
+
+    window_metrics = []
+    n_profitable   = 0
+    for win in windows:
+        split    = int(len(win) * 0.65)
+        train, test = win[:split], win[split:]
+        if len(test) < 100:
+            window_metrics.append({"error": "Zu wenige Kerzen"})
+            continue
+        run_backtest(train, strat, balance=balance)   # warm-up / train
+        trades, eq, final = run_backtest(test, strat, balance=balance)
+        m = calc_metrics(trades, eq, final, initial_balance=balance)
+        window_metrics.append(m)
+        if "error" not in m and m.get("return_pct", 0) > 0:
+            n_profitable += 1
+
+    valid_windows = [m for m in window_metrics if "error" not in m]
+    if not valid_windows:
+        return {"error": "Alle Fenster ungültig"}
+
+    # Mindestens 2 von 3 Fenstern müssen profitabel sein
+    needed = max(2, len(valid_windows) - 1)
+    if n_profitable < needed:
+        return {"error": f"Nicht konsistent: {n_profitable}/{len(valid_windows)} Fenster profitabel"}
+
+    # Neuestes Fenster zurückgeben (aktuelle Marktbedingungen am relevantesten)
+    latest = next((m for m in reversed(window_metrics) if "error" not in m), valid_windows[-1])
+
+    # Konsistenz-Flag → +12% Bonus in score()
+    if n_profitable == len(valid_windows):
+        latest["_all_consistent"] = True
+
+    return latest
 
 
 # ── RANDOM SEARCH ─────────────────────────────────────────────────────────────
@@ -152,6 +221,9 @@ def random_trial(seed=None):
         "min_score":      random.choice(SEARCH_SPACE["min_score"]),
         "strategy_type":  random.choice(SEARCH_SPACE["strategy_type"]),
         "break_even_at":  random.choice(SEARCH_SPACE["break_even_at"]),
+        "confirm_bars":   random.choice(SEARCH_SPACE["confirm_bars"]),
+        "day_filter":     random.choice(SEARCH_SPACE["day_filter"]),
+        "session_filter": random.choice(SEARCH_SPACE["session_filter"]),
     }
     # TP muss groesser als SL sein (mind. RR 1.5)
     if strat["tp_mult"] < strat["sl_mult"] * 1.5:
@@ -313,7 +385,7 @@ def main():
 
     print(f"\n  CLAUDE + QUANT  |  Auto-Optimizer v1.0  |  Optimiert auf Max Win Rate")
     print(f"  Symbol: {SYMBOL}  |  Trials: {n_trials}  |  Kerzen: {n_candles}  |  Startkapital: ${balance:,.2f}")
-    print(f"  Walk-Forward: Ja (65% Train / 35% Test)  |  Min WR: {MIN_WR}%\n")
+    print(f"  Walk-Forward: 3-Fenster (Elite)  |  Min WR: {MIN_WR}%  |  Max DD: {MAX_DRAWDOWN}%\n")
 
     # Daten laden
     candles = None
@@ -343,7 +415,7 @@ def main():
         if trial < rr_end:
             strat["strategy_type"] = STRATEGY_TYPES[trial % n_types]   # garantierter Typ
         strat["name"] = f"R-{trial+1}"
-        m = walk_forward_score(candles, strat, balance=balance)
+        m = multi_walk_forward_score(candles, strat, balance=balance)
         s = score(m)
         if s > -999:
             valid += 1
@@ -381,7 +453,7 @@ def main():
             else:
                 strat = mutate_strategy(parent)
             strat["name"] = f"E-{evo+1}"
-            m = walk_forward_score(candles, strat, balance=balance)
+            m = multi_walk_forward_score(candles, strat, balance=balance)
             s = score(m)
             if s > -999:
                 valid += 1

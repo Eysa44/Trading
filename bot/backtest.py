@@ -607,6 +607,25 @@ def precompute_signals(candles, strat):
             except Exception:
                 pass
 
+    # Session-Filter: Nur London (7-17 UTC) + NY (17-20 UTC) handeln
+    # Tote Stunden (20-7 UTC) haben niedrige Liquidität und weite Spreads → überspringen
+    session_filter = strat.get("session_filter", False)
+    if session_filter:
+        import datetime as _dt
+        for i in range(warmup, n):
+            if not signals[i]:
+                continue
+            t = candles[i].get("time")
+            if t is None:
+                continue
+            try:
+                hour = _dt.datetime.utcfromtimestamp(int(t)).hour
+                # Tote Stunden: nach NY-Close (20 UTC) bis London-Open (7 UTC)
+                if hour >= 20 or hour < 7:
+                    signals[i] = None
+            except Exception:
+                pass
+
     return signals
 
 
