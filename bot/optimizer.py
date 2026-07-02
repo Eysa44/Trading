@@ -126,6 +126,14 @@ def score(m):
         trade_q     * 0.05
     ) * dd_pen
 
+    # Verlust-Serien-Strafe: 8+ Verluste in Folge = Konto- und Psyche-Risiko
+    if m.get("max_consec_losses", 0) >= 8:
+        base *= 0.85
+
+    # Expectancy muss klar positiv sein (nach Spread/Slippage-Kosten!)
+    if m.get("expectancy", 1) <= 0:
+        return -999
+
     # +12% Bonus wenn alle 3 Walk-Forward-Fenster profitabel waren (Konsistenz)
     if m.get("_all_consistent"):
         base *= 1.12
@@ -200,6 +208,111 @@ def multi_walk_forward_score(candles, strat, balance=START_BALANCE):
         latest["_all_consistent"] = True
 
     return latest
+
+
+# ── ELITE-CHECK: Robustheits-Prüfung der Top-Kandidaten ──────────────────────
+
+def _monte_carlo_p95_dd(pnls, balance, runs=200):
+    """
+    Monte-Carlo-Stresstest: Trade-Reihenfolge 200× zufällig mischen und den
+    Drawdown jeder Reihenfolge messen. Ergebnis = 95%-Perzentil (Worst Case).
+    Elite-Standard: eine Strategie ist nur gut, wenn auch die UNGÜNSTIGSTE
+    Reihenfolge ihrer Trades das Konto nicht zerstört.
+    """
+    if not pnls:
+        return 100.0
+    seq = list(pnls)
+    dds = []
+    for _ in range(runs):
+        random.shuffle(seq)
+        eq = peak = balance
+        worst = 0.0
+        for p in seq:
+            eq += p
+            if eq > peak:
+                peak = eq
+            if peak > 0:
+                dd = (peak - eq) / peak * 100
+                if dd > worst:
+                    worst = dd
+        dds.append(worst)
+    dds.sort()
+    return dds[min(int(len(dds) * 0.95), len(dds) - 1)]
+
+
+def _jitter_variants(strat):
+    """
+    4 Nachbar-Varianten mit leicht veränderten Parametern.
+    Eine robuste Strategie funktioniert auch mit ADX ±2 / Score ±1 noch —
+    bricht der Nachbar-Score ein, war das Original nur ein Overfitting-Peak.
+    """
+    variants = []
+    for d_adx, d_score in ((+2, 0), (-2, 0), (0, +1), (0, -1)):
+        v = dict(strat)
+        v["adx_min"]   = max(10, v["adx_min"] + d_adx)
+        v["min_score"] = max(1,  v["min_score"] + d_score)
+        v["name"]      = "jitter"
+        variants.append(v)
+    return variants
+
+
+def elite_check(candles, results, balance, top_n=6):
+    """
+    Finale Elite-Prüfung der Top-Kandidaten (nach der Optimierung):
+      1. Voll-Daten-Backtest über den GESAMTEN Zeitraum (inkl. Kosten)
+      2. Monte-Carlo: 95%-Worst-Case-Drawdown bei gemischter Trade-Reihenfolge
+      3. Parameter-Jitter: 4 Nachbarn testen → Overfitting-Peaks fliegen raus
+    Re-ranked die Kandidaten nach Robust-Score. Nur der robusteste gewinnt.
+    """
+    top  = results[:top_n]
+    rest = results[top_n:]
+    if not top:
+        return results
+
+    print(f"\n  ELITE-CHECK: {len(top)} Top-Kandidaten auf Robustheit pruefen "
+          f"(Voll-Daten + Monte-Carlo + Parameter-Stabilitaet)...")
+    print(f"  {'#':>2}  {'STRATEGIE':<12} {'FULL-RET':>9} {'MC-DD95':>8} {'NACHBAR':>8} {'ROBUST':>8}")
+    print("  " + "-" * 56)
+
+    for idx, r in enumerate(top, 1):
+        strat = r["strat"]
+
+        # 1. Voll-Daten-Test: gesamter Zeitraum, nicht nur Test-Fenster
+        trades, _, final = run_backtest(candles, strat, balance=balance)
+        full_ret = (final - balance) / balance * 100
+        pnls = [t["pnl"] for t in trades]
+
+        # 2. Monte-Carlo Worst-Case-Drawdown
+        mc_dd = _monte_carlo_p95_dd(pnls, balance)
+
+        # 3. Nachbar-Stabilität (fragile Peaks abwerten)
+        n_scores = []
+        for v in _jitter_variants(strat):
+            vm = multi_walk_forward_score(candles, v, balance=balance)
+            n_scores.append(max(score(vm), 0.0))
+        avg_n = sum(n_scores) / len(n_scores) if n_scores else 0.0
+
+        mc_bonus = max(0.0, 1.0 - mc_dd / 25.0)
+        robust = r["score"] * 0.55 + avg_n * 0.30 + r["score"] * mc_bonus * 0.15
+        if full_ret <= 0:
+            robust *= 0.25    # Voll-Zeitraum unprofitabel → stark abwerten
+        if mc_dd > MAX_DRAWDOWN * 2:
+            robust *= 0.5     # Worst-Case-Drawdown zu gefährlich
+
+        r["robust_score"] = round(robust, 4)
+        r["full_return"]  = round(full_ret, 1)
+        r["mc_dd95"]      = round(mc_dd, 1)
+        r["neighbor_avg"] = round(avg_n, 4)
+        print(f"  {idx:>2}  {strat.get('strategy_type','?')[:12]:<12} "
+              f"{full_ret:>+8.1f}% {mc_dd:>7.1f}% {avg_n:>8.4f} {robust:>8.4f}")
+
+    top.sort(key=lambda x: x["robust_score"], reverse=True)
+    best = top[0]
+    print(f"\n  [ELITE] Robustester Kandidat: {best['strat'].get('strategy_type','?')}"
+          f"  |  Robust-Score: {best['robust_score']}"
+          f"  |  Voll-Return: {best['full_return']:+.1f}%"
+          f"  |  MC-Worst-Case-DD: {best['mc_dd95']}%")
+    return top + rest
 
 
 # ── RANDOM SEARCH ─────────────────────────────────────────────────────────────
@@ -383,9 +496,10 @@ def main():
     n_candles    = int(c_str)   if c_str else 5000
     balance      = float(b_str) if b_str else START_BALANCE
 
-    print(f"\n  CLAUDE + QUANT  |  Auto-Optimizer v1.0  |  Optimiert auf Max Win Rate")
+    print(f"\n  CLAUDE + QUANT  |  Auto-Optimizer v2.0 ELITE  |  Calmar + Robustheit")
     print(f"  Symbol: {SYMBOL}  |  Trials: {n_trials}  |  Kerzen: {n_candles}  |  Startkapital: ${balance:,.2f}")
-    print(f"  Walk-Forward: 3-Fenster (Elite)  |  Min WR: {MIN_WR}%  |  Max DD: {MAX_DRAWDOWN}%\n")
+    print(f"  Walk-Forward: 3-Fenster  |  Min WR: {MIN_WR}%  |  Max DD: {MAX_DRAWDOWN}%")
+    print(f"  Kosten eingerechnet: Spread+Slippage ~$0.40/Trade  |  Elite-Check: Monte-Carlo + Jitter\n")
 
     # Daten laden
     candles = None
@@ -472,6 +586,10 @@ def main():
 
     elapsed = time.time() - t_start
     print(f"\n  Fertig in {elapsed:.0f}s  |  {valid}/{n_trials} gueltige Strategien gefunden")
+
+    # Elite-Check: Top-Kandidaten stresstesten und nach Robustheit neu ranken
+    if results:
+        results = elite_check(candles, results, balance)
 
     print_top(results, n=10, balance=balance)
 

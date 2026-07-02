@@ -34,6 +34,13 @@ START_BALANCE  = 10000.0   # USD
 RISK_PCT       = 1.0       # % pro Trade
 CONTRACT_SIZE  = CONTRACT_SIZES.get(SYMBOL, 100)
 
+# ── REALISTISCHE HANDELSKOSTEN ────────────────────────────────────────────────
+# Ohne Kosten sieht jede Strategie besser aus als sie ist. Elite-Backtests
+# rechnen Spread + Slippage IMMER ein — nur was danach profitabel bleibt zählt.
+SPREAD_USD   = 0.35   # Typischer XAUUSD-Spread (~35 Punkte)
+SLIPPAGE_USD = 0.05   # Durchschnittliche Slippage pro Ausführung
+COST_USD     = SPREAD_USD + SLIPPAGE_USD   # Round-Trip-Kosten pro Position
+
 # Benannte Strategien für direkten Vergleich (backtest.py --compare)
 STRATEGIES = [
     {"name": "BALANCED",   "strategy_type": "BALANCED",   "adx_min": 25, "rsi_low_b": 40, "rsi_high_b": 65,
@@ -666,7 +673,7 @@ def run_backtest(candles, strat, balance=START_BALANCE):
                 sl_d   = atr_e * strat["sl_mult"]
                 tp1_rr = tp1_d / sl_d if sl_d > 0 else 1.0
                 if open_trade["type"] == "BUY"  and c["high"] >= open_trade["entry"] + tp1_d:
-                    pnl_1 = open_trade["risk"] * 0.5 * tp1_rr
+                    pnl_1 = open_trade["risk"] * 0.5 * tp1_rr - open_trade["cost_full"] * 0.5
                     equity += pnl_1
                     trades.append({"pnl": pnl_1, "type": "BUY",  "result": "TP1",
                                    "pattern": open_trade["pattern"], "i": i})
@@ -674,8 +681,9 @@ def run_backtest(candles, strat, balance=START_BALANCE):
                     open_trade["sl"]           = open_trade["entry"]
                     open_trade["be_triggered"] = True
                     open_trade["risk"]        *= 0.5   # Runner läuft mit halber Größe
+                    open_trade["cost_left"]    = open_trade["cost_full"] * 0.5
                 elif open_trade["type"] == "SELL" and c["low"] <= open_trade["entry"] - tp1_d:
-                    pnl_1 = open_trade["risk"] * 0.5 * tp1_rr
+                    pnl_1 = open_trade["risk"] * 0.5 * tp1_rr - open_trade["cost_full"] * 0.5
                     equity += pnl_1
                     trades.append({"pnl": pnl_1, "type": "SELL", "result": "TP1",
                                    "pattern": open_trade["pattern"], "i": i})
@@ -683,6 +691,7 @@ def run_backtest(candles, strat, balance=START_BALANCE):
                     open_trade["sl"]           = open_trade["entry"]
                     open_trade["be_triggered"] = True
                     open_trade["risk"]        *= 0.5
+                    open_trade["cost_left"]    = open_trade["cost_full"] * 0.5
 
             # ── ATR Trail für TP2 Runner (aktiviert nach TP1 + 0.5×ATR) ────────
             if open_trade.get("tp1_hit", False):
@@ -707,14 +716,14 @@ def run_backtest(candles, strat, balance=START_BALANCE):
                         open_trade["sl"] = open_trade["entry"]
                         open_trade["be_triggered"] = True
                 if c["low"] <= open_trade["sl"]:
-                    pnl = 0.0 if open_trade["be_triggered"] else -open_trade["risk"]
+                    pnl = (0.0 if open_trade["be_triggered"] else -open_trade["risk"]) - open_trade["cost_left"]
                     trades.append({"pnl": pnl, "type": "BUY",
                                    "result": "BE" if open_trade["be_triggered"] else "SL",
                                    "pattern": open_trade["pattern"], "i": i})
                     equity    += pnl
                     open_trade = None
                 elif c["high"] >= open_trade["tp"]:
-                    pnl = open_trade["risk"] * (strat["tp_mult"] / strat["sl_mult"])
+                    pnl = open_trade["risk"] * (strat["tp_mult"] / strat["sl_mult"]) - open_trade["cost_left"]
                     trades.append({"pnl": pnl, "type": "BUY", "result": "TP",
                                    "pattern": open_trade["pattern"], "i": i})
                     equity    += pnl
@@ -726,14 +735,14 @@ def run_backtest(candles, strat, balance=START_BALANCE):
                         open_trade["sl"] = open_trade["entry"]
                         open_trade["be_triggered"] = True
                 if c["high"] >= open_trade["sl"]:
-                    pnl = 0.0 if open_trade["be_triggered"] else -open_trade["risk"]
+                    pnl = (0.0 if open_trade["be_triggered"] else -open_trade["risk"]) - open_trade["cost_left"]
                     trades.append({"pnl": pnl, "type": "SELL",
                                    "result": "BE" if open_trade["be_triggered"] else "SL",
                                    "pattern": open_trade["pattern"], "i": i})
                     equity    += pnl
                     open_trade = None
                 elif c["low"] <= open_trade["tp"]:
-                    pnl = open_trade["risk"] * (strat["tp_mult"] / strat["sl_mult"])
+                    pnl = open_trade["risk"] * (strat["tp_mult"] / strat["sl_mult"]) - open_trade["cost_left"]
                     trades.append({"pnl": pnl, "type": "SELL", "result": "TP",
                                    "pattern": open_trade["pattern"], "i": i})
                     equity    += pnl
@@ -769,6 +778,7 @@ def run_backtest(candles, strat, balance=START_BALANCE):
                 tp = c["close"] - atr_v * strat["tp_mult"]
 
             pattern = ind.get("pattern") if sig_cache is None else None
+            cost_usd = COST_USD * lot * CONTRACT_SIZE   # Spread+Slippage der Gesamtposition
             open_trade = {
                 "type":         signal,
                 "entry":        c["close"],
@@ -782,6 +792,8 @@ def run_backtest(candles, strat, balance=START_BALANCE):
                 "open_i":       i,
                 "tp1_dist":     atr_v * tp1_m,
                 "tp1_hit":      False,
+                "cost_full":    cost_usd,
+                "cost_left":    cost_usd,
             }
 
         equity_curve.append(round(equity, 2))
@@ -792,6 +804,7 @@ def run_backtest(candles, strat, balance=START_BALANCE):
         pnl  = (last - open_trade["entry"]) * open_trade["lot"] * CONTRACT_SIZE
         if open_trade["type"] == "SELL":
             pnl = -pnl
+        pnl -= open_trade["cost_left"]
         trades.append({"pnl": round(pnl, 2), "type": open_trade["type"],
                        "result": "OPEN", "pattern": open_trade["pattern"], "i": len(candles)-1})
         equity += pnl
@@ -836,6 +849,28 @@ def calc_metrics(trades, equity_curve, final_equity, initial_balance=None):
     else:
         sharpe = 0
 
+    # Sortino: wie Sharpe, aber nur Verlust-Volatilität zählt (Elite-Metrik —
+    # Gewinn-Schwankungen sind kein Risiko, nur Verluste)
+    if len(pnls) > 1:
+        avg_all = sum(pnls) / len(pnls)
+        d_std   = math.sqrt(sum(min(0.0, p) ** 2 for p in pnls) / len(pnls))
+        sortino = (avg_all / d_std * math.sqrt(len(pnls))) if d_std > 0 else 0
+    else:
+        sortino = 0
+
+    # Expectancy: erwarteter $-Gewinn pro Trade (muss klar positiv sein)
+    expectancy = sum(pnls) / len(pnls) if pnls else 0
+
+    # Längste Verlust-Serie (Risiko für Konto UND Psyche)
+    max_consec = cur_consec = 0
+    for p in pnls:
+        if p < 0:
+            cur_consec += 1
+            if cur_consec > max_consec:
+                max_consec = cur_consec
+        else:
+            cur_consec = 0
+
     # Pattern-Stats
     pat_stats = {}
     for t in trades:
@@ -862,6 +897,9 @@ def calc_metrics(trades, equity_curve, final_equity, initial_balance=None):
         "return_pct":      return_pct,
         "max_drawdown":    round(max_dd, 1),
         "sharpe":          round(sharpe, 2),
+        "sortino":         round(sortino, 2),
+        "expectancy":      round(expectancy, 2),
+        "max_consec_losses": max_consec,
         "avg_win":         round(sum(wins) / len(wins), 2)   if wins   else 0,
         "avg_loss":        round(sum(losses) / len(losses), 2) if losses else 0,
         "biggest_win":     round(max(wins), 2)   if wins   else 0,
